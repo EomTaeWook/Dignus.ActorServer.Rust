@@ -1,7 +1,8 @@
 use crate::dispatcher::actor_yield_task::SendOrPostCallback;
 use crate::dispatcher::signal::Signal;
-use crate::internals::actor_schedulable::ActorSchedulable;
+use crate::internals::actor_schedulable_trait::ActorSchedulableTrait;
 use crate::object_pool::actor_yield_task_pool::ActorYieldTaskPool;
+
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::sync::{
@@ -16,7 +17,7 @@ thread_local! {
 
 pub(crate) struct ActorDispatcher {
     dispatcher_id: i32,
-    scheduled_actors: Mutex<VecDeque<Arc<dyn ActorSchedulable>>>,
+    scheduled_actors: Mutex<VecDeque<Arc<dyn ActorSchedulableTrait>>>,
     yield_task_pool: Arc<ActorYieldTaskPool>,
     is_stopped: AtomicBool,
     worker_thread: Mutex<Option<JoinHandle<()>>>,
@@ -42,9 +43,7 @@ impl ActorDispatcher {
     }
 
     pub(crate) fn current_actor_dispatcher() -> Option<Arc<ActorDispatcher>> {
-        CURRENT_ACTOR_DISPATCHER.with(|current_actor_dispatcher| {
-            current_actor_dispatcher.borrow().clone()
-        })
+        CURRENT_ACTOR_DISPATCHER.with(|current_actor_dispatcher| current_actor_dispatcher.borrow().clone())
     }
 
     pub(crate) fn start(self: &Arc<Self>) {
@@ -75,18 +74,28 @@ impl ActorDispatcher {
             self.signal_pending.store(0, Ordering::Release);
 
             loop {
-                let actor_schedulable = {
+                let mut batch = {
                     let mut scheduled_actors = self.scheduled_actors.lock().unwrap();
-                    scheduled_actors.pop_front()
+
+                    if scheduled_actors.is_empty() {
+                        break;
+                    }
+
+                    std::mem::take(&mut *scheduled_actors)
                 };
 
-                let Some(actor_schedulable) = actor_schedulable else {
-                    break;
-                };
+                let mut is_stopped = false;
 
-                actor_schedulable.execute();
+                for actor_schedulable in batch.drain(..) {
+                    actor_schedulable.execute();
 
-                if self.is_stopped.load(Ordering::Acquire) {
+                    if self.is_stopped.load(Ordering::Acquire) {
+                        is_stopped = true;
+                        break;
+                    }
+                }
+
+                if is_stopped {
                     break;
                 }
             }
@@ -114,18 +123,14 @@ impl ActorDispatcher {
         }
     }
 
-    pub(crate) fn schedule(&self, actor_schedulable: Arc<dyn ActorSchedulable>) {
+    pub(crate) fn schedule(&self, actor_schedulable: Arc<dyn ActorSchedulableTrait>) {
         if self.is_stopped.load(Ordering::Acquire) {
             return;
         }
 
         self.scheduled_actors.lock().unwrap().push_back(actor_schedulable);
 
-        if self
-            .signal_pending
-            .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
-            .is_ok()
-        {
+        if self.signal_pending.compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire).is_ok() {
             self.signal.release();
         }
     }

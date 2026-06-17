@@ -1,5 +1,5 @@
 use std::sync::Arc;
 
-pub(crate) trait ActorSchedulable: Send + Sync {
+pub(crate) trait ActorSchedulableTrait: Send + Sync {
     fn execute(self: Arc<Self>);
 }

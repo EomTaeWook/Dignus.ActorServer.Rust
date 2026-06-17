@@ -1,15 +1,18 @@
 # Dignus.ActorServer.Rust
 
-Rust port of the Dignus Actor Framework.
+A high-performance Rust port of the Dignus Actor Framework.
 
-This repository is a work-in-progress port of the original C# `Dignus.ActorServer` project to Rust.
-The goal is to keep the original actor runtime design as close as possible while adapting the implementation to Rust ownership, threading, and module rules.
+This repository is a work-in-progress port of the original C# [`Dignus.ActorServer`](https://github.com/EomTaeWook/Dignus.ActorServer) project to Rust.
+
+The original C# runtime is designed for high-throughput local actor message processing and has reached around **250M ~ 270M msg/s** in local in-process ping-pong benchmarks, with a best observed result of **277M msg/s**.
+
+The goal of this Rust port is to keep the original actor runtime design as close as possible while adapting the implementation to Rust ownership, threading, lifetime, and module rules.
 
 ---
 
 ## Porting Target
 
-Original project:
+Original C# project:
 
 ```text
 Dignus.ActorServer
@@ -19,39 +22,21 @@ Dignus.ActorServer
 └─ Benchmark
 ```
 
-Rust target:
+Rust port target:
 
 ```text
 Dignus.ActorServer.Rust
-├─ actor-abstractions
 ├─ actor-core
 ├─ actor-network
 └─ benchmark
 ```
 
----
+Current workspace status:
 
-## Current Status
-
-This project is currently in the early porting stage.
-
-Current focus:
-
-- `Dignus.Actor.Core`
-- Actor dispatcher
-- Actor scheduling
-- Yield continuation task
-- Object pool structure
-- Rust module layout
-
-Not yet completed:
-
-- Full actor lifecycle
-- Actor references
-- Ask/request-response flow
-- Network layer
-- Protocol layer
-- Benchmarks
+```text
+Dignus.ActorServer.Rust
+└─ actor-core
+```
 
 ---
 
@@ -59,81 +44,237 @@ Not yet completed:
 
 The Rust implementation follows these rules:
 
-- Keep the original C# structure where practical
-- Avoid unnecessary abstraction during porting
-- Prefer direct Rust equivalents over redesign
-- Use Rust modules instead of C# namespaces
-- Use `Arc`, `Mutex`, atomics, and thread-local storage where required
-- Keep dispatcher execution dedicated to worker threads
-
----
-
-## Actor Core Layout
-
-Current `actor-core` structure:
-
-```text
-actor-core
-├─ Cargo.toml
-└─ src
-   ├─ lib.rs
-   ├─ actor_system.rs
-   ├─ dispatcher
-   │  ├─ mod.rs
-   │  ├─ actor_dispatcher.rs
-   │  ├─ actor_yield_task.rs
-   │  └─ signal.rs
-   ├─ internals
-   │  ├─ mod.rs
-   │  └─ actor_schedulable.rs
-   └─ object_pool
-      ├─ mod.rs
-      └─ actor_yield_task_pool.rs
-```
+* Keep the original C# structure where practical
+* Avoid unnecessary abstraction during porting
+* Prefer direct Rust equivalents over redesign
+* Use Rust modules instead of C# namespaces
+* Use `Arc`, `Mutex`, atomics, and thread-local storage where required
+* Keep dispatcher execution dedicated to worker threads
+* Hide runtime-only internals where Rust module visibility allows it
+* Preserve the original actor scheduling and dispatcher model
 
 ---
 
 ## C# to Rust Mapping
 
-| C# | Rust |
-|---|---|
-| `namespace` | `mod` |
-| `internal` | `pub(crate)` |
-| `interface` | `trait` |
-| `IDisposable` | explicit `dispose()` or `Drop` |
-| `[ThreadStatic]` | `thread_local!` |
-| `SemaphoreSlim` | `Mutex` + `Condvar` based signal |
-| `Thread` | `std::thread::JoinHandle` |
-| `volatile bool` | `AtomicBool` |
-| `Interlocked` | atomic operations |
-| `ObjectPoolBase<T>` | `Mutex<Vec<Arc<T>>>` based pool |
-| `SendOrPostCallback + state` | `FnOnce()` closure |
+| C#                            | Rust                               |
+| ----------------------------- | ---------------------------------- |
+| `namespace`                   | `mod`                              |
+| `internal`                    | `pub(crate)`                       |
+| `interface`                   | `trait`                            |
+| `abstract class`              | `trait` + actor context            |
+| `IDisposable`                 | explicit `dispose()`               |
+| `[ThreadStatic]`              | `thread_local!`                    |
+| `SemaphoreSlim`               | custom signal                      |
+| `Thread`                      | `std::thread::JoinHandle`          |
+| `volatile bool`               | `AtomicBool`                       |
+| `Interlocked`                 | atomic operations                  |
+| `SynchronizationContext.Post` | dispatcher continuation scheduling |
 
 ---
 
-## Actor Dispatcher
+## Actor Runtime Flow
 
 The dispatcher keeps the original execution idea:
 
 ```text
-Schedule actor
+Post message
+   ↓
+Enqueue actor mail
+   ↓
+Schedule actor runner on owner dispatcher
    ↓
 Signal dispatcher thread
    ↓
-Worker thread wakes up
+Dispatcher drains scheduled queue
    ↓
-Drain scheduled actor queue
+Actor runner executes actor receive logic
    ↓
-Execute actor schedulable items
+Actor handles message
 ```
 
-Current dispatcher components:
+If the receive logic becomes pending, mailbox processing for that actor is stopped until the pending receive completes.
 
-- `ActorDispatcher`
-- `ActorSchedulable`
-- `ActorYieldTask`
-- `ActorYieldTaskPool`
-- `Signal`
+---
+
+## Dispatcher Context Switching
+
+The C# version supports dispatcher switching through:
+
+```csharp
+await ActorAwait.Join(actor);
+```
+
+The Rust port keeps the same concept:
+
+```rust
+ActorAwait::join(actor).await;
+```
+
+This schedules the continuation onto the target actor dispatcher.
+
+`ActorAwait::join(target).await` is a dispatcher context switch. It does not transfer actor ownership.
+
+If actor state is accessed after a dispatcher switch, the actor implementation is responsible for returning to the correct dispatcher or validating the context.
+
+---
+
+## Actor Receive Await Model
+
+The Rust port keeps the C# actor continuation model where practical.
+
+Actor receive logic may suspend and resume while preserving actor execution order.
+
+```text
+receive message
+   ↓
+access actor state
+   ↓
+await
+   ↓
+resume receive logic
+   ↓
+access actor state again
+```
+
+While an actor receive operation is pending, the actor does not process the next mailbox message.
+
+---
+
+## Pending Receive Handling
+
+Pending receive handling is part of the actor execution model.
+
+```text
+Receive operation becomes pending
+   ↓
+Store pending receive state
+   ↓
+Stop mailbox processing for this actor
+   ↓
+Wake schedules actor execution again
+   ↓
+Pending receive is checked first
+   ↓
+Ready resumes normal mailbox processing
+```
+
+This preserves the single-message execution model of the original C# actor runtime.
+
+---
+
+## Kill Semantics
+
+`Kill()` changes the actor lifecycle state and rejects new messages.
+
+If the actor currently has a pending receive operation, the runtime does not forcibly cancel it. Finalization occurs only after the pending receive completes and the actor returns to its owner dispatcher.
+
+If a receive operation never completes, actor finalization also does not complete. This follows the original C# runtime semantics and is considered the actor implementation's responsibility.
+
+---
+
+## Runtime Safety Notes
+
+The runtime relies on the following internal invariants:
+
+* Only one receive operation may be active per actor
+* Mailbox processing is stopped while receive logic is pending
+* Pending receive must not be polled concurrently
+* Actor finalization must not run while receive logic is still pending
+* Actor implementations should validate dispatcher context before accessing actor-owned mutable state after dispatcher switching
+
+---
+
+## Current Core Components
+
+### `ActorSystem`
+
+* owns dispatchers
+* spawns actors
+* routes posts and kills
+* disposes actors and dispatchers
+
+### Actor base/context
+
+* defines actor receive behavior
+* stores runtime actor context
+* provides self reference and dispatcher verification
+
+### Actor reference
+
+* posts messages
+* posts actor mail
+* kills actor
+
+### Actor runner
+
+* owns actor instance
+* owns mailbox
+* executes actor receive logic
+* manages pending receive state
+* finalizes actor kill
+
+### Actor dispatcher
+
+* owns scheduled execution queue
+* owns dispatcher thread
+* runs scheduled actor work
+
+### Actor await
+
+* switches async continuation to another actor dispatcher
+
+---
+
+## Original C# Benchmark Baseline
+
+This benchmark result is from the original C# `Dignus.ActorServer` implementation.
+
+It is included as a baseline target for the Rust port.
+
+### Benchmark
+
+Local in-process ping-pong benchmark.
+
+Test environment:
+
+```text
+CPU: Intel Core i5-12400F
+RAM: 32 GB
+OS: Windows x64
+```
+
+Benchmark conditions:
+
+```text
+Actor Pair Count: 348
+Actual Actor Count: 696
+Pipeline Size Per Pair: 1,000
+Benchmark Duration: 10 seconds
+Counter: per-actor local counter, summed after completion
+```
+
+Best observed result:
+
+```text
+Processed Messages: 2,907,908,768
+Elapsed: 10.475 sec
+Throughput: 277,599,493 msg/s
+```
+
+Representative result:
+
+```text
+Throughput: around 250M ~ 270M msg/s
+```
+
+Notes:
+
+* This benchmark measures local actor message throughput only.
+* It does not include network, serialization, database access, logging, or game logic.
+* Per-message global synchronization was intentionally avoided.
+* Results may vary depending on CPU scheduling, background processes, power mode, GC timing, and runtime warm-up.
+* This is not the Rust port benchmark result.
 
 ---
 
@@ -153,7 +294,7 @@ cargo check
 
 ---
 
-## Workspace Example
+## Workspace
 
 Root `Cargo.toml`:
 
@@ -183,16 +324,19 @@ Some C# features do not have direct Rust standard library equivalents.
 
 Examples:
 
-- `SynchronizationContext`
-- `Thread.Priority`
-- Background thread setting
-- C# object reference based pooling
+* `abstract class`
+* `protected`
+* `SynchronizationContext`
+* `Thread.Priority`
+* Background thread setting
+* C# reference-based object pooling
 
-These are ported only when the surrounding Rust structure requires them.
+These are adapted only where the current Rust runtime structure requires them.
 
 ---
 
 ## License
 
 Licensed under the MIT License.
-See `LICENSE` in the project root.
+
+See [`LICENSE`](./LICENSE) in the project root.

@@ -1,5 +1,6 @@
+use crate::internals::actor_schedulable_trait::ActorSchedulableTrait;
 use crate::object_pool::actor_yield_task_pool::ActorYieldTaskPool;
-use crate::internals::actor_schedulable::ActorSchedulable;
+
 use std::sync::{Arc, Mutex, Weak};
 
 pub(crate) type SendOrPostCallback = Box<dyn FnOnce() + Send + 'static>;
@@ -30,7 +31,7 @@ impl ActorYieldTask {
     }
 }
 
-impl ActorSchedulable for ActorYieldTask {
+impl ActorSchedulableTrait for ActorYieldTask {
     fn execute(self: Arc<Self>) {
         let send_or_post_callback = self.send_or_post_callback.lock().unwrap().take();
 
