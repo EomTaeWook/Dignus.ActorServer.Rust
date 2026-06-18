@@ -1,9 +1,15 @@
 use crate::actor_base::{ActorBase, ActorReceiveResult};
+use crate::dead_letter::{
+    dead_letter_message::DeadLetterMessage,
+    dead_letter_publisher_trait::DeadLetterPublisherTrait,
+    dead_letter_reason::DeadLetterReason,
+};
 use crate::dispatcher::actor_dispatcher::ActorDispatcher;
 use crate::internals::actor_ref::ActorRef;
 use crate::internals::actor_schedulable_trait::ActorSchedulableTrait;
-use crate::poll_driver::{CompletionCallback, PollDriver, PollOutcome};
 use crate::messages::actor_mail::ActorMail;
+use crate::messages::actor_message_trait::ActorMessageTrait;
+use crate::poll_driver::{CompletionCallback, PollDriver, PollOutcome};
 use crate::queues::mpsc_bounded_queue::MpscBoundedQueue;
 
 use std::cell::UnsafeCell;
@@ -15,6 +21,10 @@ use std::task::{Wake, Waker};
 const LIFECYCLE_RUNNING: i32 = 0;
 const LIFECYCLE_KILLING: i32 = 1;
 const LIFECYCLE_STOPPED: i32 = 2;
+
+struct ActorExecutionExceptionMessage;
+
+impl ActorMessageTrait for ActorExecutionExceptionMessage {}
 
 fn create_receive_future<'actor>(
     actor: &'actor UnsafeCell<Box<dyn ActorBase>>,
@@ -32,6 +42,7 @@ pub(crate) struct ActorRunner {
     actor: UnsafeCell<Box<dyn ActorBase>>,
     actor_ref: ActorRef,
     dispatcher: Arc<ActorDispatcher>,
+    dead_letter_publisher: Arc<dyn DeadLetterPublisherTrait + Send + Sync>,
     on_finalize: Box<dyn Fn(u32, u32) + Send + Sync>,
     mailbox: MpscBoundedQueue<ActorMail>,
 
@@ -50,6 +61,7 @@ impl ActorRunner {
         dispatcher: Arc<ActorDispatcher>,
         actor_ref: ActorRef,
         mailbox_capacity: usize,
+        dead_letter_publisher: Arc<dyn DeadLetterPublisherTrait + Send + Sync>,
         on_finalize: Box<dyn Fn(u32, u32) + Send + Sync>,
     ) -> Self {
         actor
@@ -60,6 +72,7 @@ impl ActorRunner {
             actor: UnsafeCell::new(actor),
             actor_ref,
             dispatcher,
+            dead_letter_publisher,
             on_finalize,
             mailbox: MpscBoundedQueue::new(mailbox_capacity),
             is_scheduled: AtomicBool::new(false),
@@ -137,7 +150,6 @@ impl ActorRunner {
         }
 
         match self.poll_pending_receive() {
-            // Ready: the registered completion callback already rescheduled us.
             PollOutcome::Ready => false,
             PollOutcome::Pending => false,
             PollOutcome::Failed => {
@@ -171,7 +183,12 @@ impl ActorRunner {
     }
 
     fn publish_execution_exception(&self) {
-
+        self.dead_letter_publisher.publish(DeadLetterMessage::new(
+            Box::new(ActorExecutionExceptionMessage),
+            None,
+            self.actor_ref.index() as i64,
+            DeadLetterReason::ExecutionException,
+        ));
     }
 }
 
@@ -215,7 +232,8 @@ impl ActorSchedulableTrait for ActorRunner {
                 ActorReceiveResult::Pending(receive_future) => receive_future,
             };
 
-            self.poll_driver.arm(receive_future, Some(self.receive_completed_callback()));
+            self.poll_driver
+                .arm(receive_future, Some(self.receive_completed_callback()));
 
             match self.poll_pending_receive() {
                 PollOutcome::Ready => return,
