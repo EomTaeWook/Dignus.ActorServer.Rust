@@ -1,10 +1,7 @@
 use crate::{
     actor_ref_trait::ActorRefTrait,
     internals::registry::ActorRegistry,
-    messages::{
-        actor_mail::ActorMail,
-        actor_message_trait::ActorMessageTrait,
-    },
+    messages::{actor_mail::ActorMail, actor_message_trait::ActorMessageTrait},
 };
 
 use std::sync::Arc;
@@ -18,7 +15,12 @@ pub(crate) struct ActorRef {
 }
 
 impl ActorRef {
-    pub(crate) fn new(index: u32, generation: u32, alias: Option<String>, registry: Arc<ActorRegistry>) -> Self {
+    pub(crate) fn new(
+        index: u32,
+        generation: u32,
+        alias: Option<String>,
+        registry: Arc<ActorRegistry>,
+    ) -> Self {
         Self {
             index,
             generation,
@@ -40,7 +42,8 @@ impl ActorRef {
     }
 
     fn post(&self, message: Box<dyn ActorMessageTrait>, sender: Option<Arc<dyn ActorRefTrait>>) {
-        self.registry.post(self.index, self.generation, ActorMail::new(message, sender));
+        self.registry
+            .post(self.index, self.generation, ActorMail::new(message, sender));
     }
 
     fn post_mail(&self, actor_mail: ActorMail) {

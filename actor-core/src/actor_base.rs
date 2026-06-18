@@ -1,8 +1,6 @@
 use crate::{
-    actor_ref_trait::ActorRefTrait,
-    dispatcher::actor_dispatcher::ActorDispatcher,
-    internals::actor_ref::ActorRef,
-    messages::actor_message_trait::ActorMessageTrait,
+    actor_ref_trait::ActorRefTrait, dispatcher::actor_dispatcher::ActorDispatcher,
+    internals::actor_ref::ActorRef, messages::actor_message_trait::ActorMessageTrait,
 };
 
 use std::{
@@ -11,8 +9,7 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-pub type ActorReceiveFuture<'actor> =
-    Pin<Box<dyn Future<Output = ()> + Send + 'actor>>;
+pub type ActorReceiveFuture<'actor> = Pin<Box<dyn Future<Output = ()> + Send + 'actor>>;
 
 pub enum ActorReceiveResult<'actor> {
     Done,
@@ -97,8 +94,7 @@ pub trait ActorBase: Send {
         sender: Option<Arc<dyn ActorRefTrait>>,
     ) -> ActorReceiveResult<'actor>;
 
-    fn on_kill(&mut self) {
-    }
+    fn on_kill(&mut self) {}
 
     fn self_ref(&self) -> Arc<dyn ActorRefTrait> {
         self.actor_context().self_ref_trait()

@@ -1,7 +1,4 @@
-use crate::{
-    actor_ref_trait::ActorRefTrait,
-    messages::actor_message_trait::ActorMessageTrait,
-};
+use crate::{actor_ref_trait::ActorRefTrait, messages::actor_message_trait::ActorMessageTrait};
 
 use super::dead_letter_reason::DeadLetterReason;
 

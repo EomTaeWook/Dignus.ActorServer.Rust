@@ -49,9 +49,11 @@ impl Future for ActorAwaiter {
 
             let waker = context.waker().clone();
 
-            actor_awaiter.dispatcher.enqueue_continuation(Box::new(move || {
-                waker.wake();
-            }));
+            actor_awaiter
+                .dispatcher
+                .enqueue_continuation(Box::new(move || {
+                    waker.wake();
+                }));
         }
 
         Poll::Pending

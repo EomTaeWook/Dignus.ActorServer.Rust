@@ -1,7 +1,4 @@
-use crate::{
-    actor_ref_trait::ActorRefTrait,
-    messages::actor_message_trait::ActorMessageTrait,
-};
+use crate::{actor_ref_trait::ActorRefTrait, messages::actor_message_trait::ActorMessageTrait};
 
 use std::sync::Arc;
 
@@ -11,11 +8,11 @@ pub struct ActorMail {
 }
 
 impl ActorMail {
-    pub fn new(message: Box<dyn ActorMessageTrait>, sender: Option<Arc<dyn ActorRefTrait>>) -> Self {
-        Self {
-            message,
-            sender,
-        }
+    pub fn new(
+        message: Box<dyn ActorMessageTrait>,
+        sender: Option<Arc<dyn ActorRefTrait>>,
+    ) -> Self {
+        Self { message, sender }
     }
 
     pub fn message(&self) -> &dyn ActorMessageTrait {

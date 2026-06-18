@@ -59,7 +59,11 @@ impl<T> MpscBoundedQueue<T> {
             let difference = sequence - position;
 
             if difference == 0 {
-                if self.producer_index.compare_exchange(position, position + 1, Ordering::AcqRel, Ordering::Acquire).is_err() {
+                if self
+                    .producer_index
+                    .compare_exchange(position, position + 1, Ordering::AcqRel, Ordering::Acquire)
+                    .is_err()
+                {
                     continue;
                 }
 
@@ -89,7 +93,8 @@ impl<T> MpscBoundedQueue<T> {
         if difference == 0 {
             let item = unsafe { (*slot.data.get()).assume_init_read() };
 
-            slot.sequence.store(position + self.capacity as i64, Ordering::Release);
+            slot.sequence
+                .store(position + self.capacity as i64, Ordering::Release);
 
             unsafe {
                 *self.consumer_index.get() = position + 1;
@@ -128,7 +133,6 @@ impl<T> MpscBoundedQueue<T> {
 
 impl<T> Drop for MpscBoundedQueue<T> {
     fn drop(&mut self) {
-        while self.try_dequeue().is_some() {
-        }
+        while self.try_dequeue().is_some() {}
     }
 }

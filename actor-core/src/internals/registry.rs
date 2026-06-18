@@ -148,8 +148,10 @@ impl ActorRegistry {
             return None;
         }
 
-        slot.generation.store(generation.wrapping_add(1), Ordering::Release);
-        slot.runner_ptr.store(std::ptr::null_mut(), Ordering::Release);
+        slot.generation
+            .store(generation.wrapping_add(1), Ordering::Release);
+        slot.runner_ptr
+            .store(std::ptr::null_mut(), Ordering::Release);
 
         let removed = unsafe { (*slot.owner.get()).take() };
 

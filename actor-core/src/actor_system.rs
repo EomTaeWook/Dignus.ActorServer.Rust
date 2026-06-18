@@ -6,20 +6,14 @@ use crate::{
         dead_letter_publisher_trait::DeadLetterPublisherTrait,
     },
     dispatcher::actor_dispatcher::ActorDispatcher,
-    internals::{
-        actor_ref::ActorRef,
-        actor_runner::ActorRunner,
-        registry::ActorRegistry,
-    },
+    internals::{actor_ref::ActorRef, actor_runner::ActorRunner, registry::ActorRegistry},
 };
 
 use std::{
     collections::HashMap,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
-        Mutex,
-        RwLock,
+        Arc, Mutex, RwLock,
     },
     thread,
 };
@@ -67,8 +61,7 @@ impl ActorSystem {
     pub fn set_dead_letter_callback<TDeadLetterCallback>(
         &self,
         dead_letter_callback: TDeadLetterCallback,
-    )
-    where
+    ) where
         TDeadLetterCallback: Fn(&DeadLetterMessage) + Send + Sync + 'static,
     {
         let mut current_dead_letter_callback = self.dead_letter_callback.lock().unwrap();
@@ -91,10 +84,7 @@ impl ActorSystem {
         self.spawn_with_options::<TActor>(None, DEFAULT_MAILBOX_CAPACITY)
     }
 
-    pub fn spawn_with_alias<TActor>(
-        self: &Arc<Self>,
-        alias: String,
-    ) -> Arc<dyn ActorRefTrait>
+    pub fn spawn_with_alias<TActor>(self: &Arc<Self>, alias: String) -> Arc<dyn ActorRefTrait>
     where
         TActor: ActorBase + Default + 'static,
     {
@@ -207,11 +197,7 @@ impl ActorSystem {
     where
         TActor: ActorBase + Default + 'static,
     {
-        self.spawn_on_dispatcher_with_options::<TActor>(
-            dispatcher_index,
-            None,
-            mailbox_capacity,
-        )
+        self.spawn_on_dispatcher_with_options::<TActor>(dispatcher_index, None, mailbox_capacity)
     }
 
     pub fn spawn_on_dispatcher_with_options<TActor>(
@@ -404,15 +390,11 @@ impl ActorSystem {
         }
 
         let (index, generation) = self.registry.reserve();
-        let dispatcher_index = dispatcher_index.unwrap_or((index as usize) % self.dispatchers.len());
+        let dispatcher_index =
+            dispatcher_index.unwrap_or((index as usize) % self.dispatchers.len());
         let actor_dispatcher = Arc::clone(&self.dispatchers[dispatcher_index]);
 
-        let actor_ref = ActorRef::new(
-            index,
-            generation,
-            alias.clone(),
-            Arc::clone(&self.registry),
-        );
+        let actor_ref = ActorRef::new(index, generation, alias.clone(), Arc::clone(&self.registry));
         let actor_ref_trait: Arc<dyn ActorRefTrait> = Arc::new(actor_ref.clone());
 
         let weak_actor_system = Arc::downgrade(self);

@@ -1,7 +1,6 @@
 use crate::actor_base::{ActorBase, ActorReceiveResult};
 use crate::dead_letter::{
-    dead_letter_message::DeadLetterMessage,
-    dead_letter_publisher_trait::DeadLetterPublisherTrait,
+    dead_letter_message::DeadLetterMessage, dead_letter_publisher_trait::DeadLetterPublisherTrait,
     dead_letter_reason::DeadLetterReason,
 };
 use crate::dispatcher::actor_dispatcher::ActorDispatcher;
@@ -171,8 +170,7 @@ impl ActorRunner {
             return;
         }
 
-        while self.mailbox.try_dequeue().is_some() {
-        }
+        while self.mailbox.try_dequeue().is_some() {}
 
         self.poll_driver.clear();
 

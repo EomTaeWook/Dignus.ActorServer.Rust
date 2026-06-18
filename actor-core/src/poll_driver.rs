@@ -41,7 +41,9 @@ impl PollDriver {
         on_complete: Option<CompletionCallback>,
     ) {
         let future = unsafe {
-            std::mem::transmute::<Pin<Box<dyn Future<Output = ()> + Send + 'a>>, DriverFuture>(future)
+            std::mem::transmute::<Pin<Box<dyn Future<Output = ()> + Send + 'a>>, DriverFuture>(
+                future,
+            )
         };
 
         {

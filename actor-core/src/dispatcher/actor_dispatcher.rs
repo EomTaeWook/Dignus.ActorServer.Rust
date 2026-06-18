@@ -43,7 +43,8 @@ impl ActorDispatcher {
     }
 
     pub(crate) fn current_actor_dispatcher() -> Option<Arc<ActorDispatcher>> {
-        CURRENT_ACTOR_DISPATCHER.with(|current_actor_dispatcher| current_actor_dispatcher.borrow().clone())
+        CURRENT_ACTOR_DISPATCHER
+            .with(|current_actor_dispatcher| current_actor_dispatcher.borrow().clone())
     }
 
     pub(crate) fn start(self: &Arc<Self>) {
@@ -128,9 +129,16 @@ impl ActorDispatcher {
             return;
         }
 
-        self.scheduled_actors.lock().unwrap().push_back(actor_schedulable);
+        self.scheduled_actors
+            .lock()
+            .unwrap()
+            .push_back(actor_schedulable);
 
-        if self.signal_pending.compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire).is_ok() {
+        if self
+            .signal_pending
+            .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+        {
             self.signal.release();
         }
     }

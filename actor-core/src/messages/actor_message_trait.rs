@@ -1,2 +1,1 @@
-pub trait ActorMessageTrait : Send + 'static {
-}
+pub trait ActorMessageTrait: Send + 'static {}
