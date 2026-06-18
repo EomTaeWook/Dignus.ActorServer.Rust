@@ -2,20 +2,31 @@ use crate::actor_base::{ActorBase, ActorReceiveResult};
 use crate::dispatcher::actor_dispatcher::ActorDispatcher;
 use crate::internals::actor_ref::ActorRef;
 use crate::internals::actor_schedulable_trait::ActorSchedulableTrait;
-use crate::internals::enums::ActorReceivePollResult;
-use crate::internals::pending_receive::PendingReceive;
+use crate::poll_driver::{CompletionCallback, PollDriver, PollOutcome};
 use crate::messages::actor_mail::ActorMail;
 use crate::queues::mpsc_bounded_queue::MpscBoundedQueue;
 
 use std::cell::UnsafeCell;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::task::{Wake, Waker};
 
 const LIFECYCLE_RUNNING: i32 = 0;
 const LIFECYCLE_KILLING: i32 = 1;
 const LIFECYCLE_STOPPED: i32 = 2;
+
+fn create_receive_future<'actor>(
+    actor: &'actor UnsafeCell<Box<dyn ActorBase>>,
+    actor_mail: ActorMail,
+) -> ActorReceiveResult<'actor> {
+    let (message, sender) = actor_mail.into_parts();
+
+    unsafe {
+        let actor = &mut *actor.get();
+        actor.on_receive(message, sender)
+    }
+}
 
 pub(crate) struct ActorRunner {
     actor: UnsafeCell<Box<dyn ActorBase>>,
@@ -27,7 +38,7 @@ pub(crate) struct ActorRunner {
     is_scheduled: AtomicBool,
     lifecycle_state: AtomicI32,
 
-    pending_receive: PendingReceive,
+    poll_driver: PollDriver,
 }
 
 unsafe impl Send for ActorRunner {}
@@ -53,8 +64,18 @@ impl ActorRunner {
             mailbox: MpscBoundedQueue::new(mailbox_capacity),
             is_scheduled: AtomicBool::new(false),
             lifecycle_state: AtomicI32::new(LIFECYCLE_RUNNING),
-            pending_receive: PendingReceive::new(),
+            poll_driver: PollDriver::new(),
         }
+    }
+
+    fn receive_completed_callback(self: &Arc<Self>) -> CompletionCallback {
+        let weak_self: Weak<Self> = Arc::downgrade(self);
+
+        Box::new(move || {
+            if let Some(actor_runner) = weak_self.upgrade() {
+                actor_runner.schedule_self();
+            }
+        })
     }
 
     pub(crate) fn enqueue_only(&self, actor_mail: ActorMail) -> bool {
@@ -105,29 +126,27 @@ impl ActorRunner {
         }))
     }
 
-    fn poll_pending_receive(self: &Arc<Self>) -> ActorReceivePollResult {
+    fn poll_pending_receive(self: &Arc<Self>) -> PollOutcome {
         let waker = self.create_waker();
-        self.pending_receive.poll(&waker)
+        self.poll_driver.poll(&waker)
     }
 
     fn execute_pending_receive(self: &Arc<Self>) -> bool {
-        if self.pending_receive.is_active() == false {
+        if self.poll_driver.is_active() == false {
             return true;
         }
 
         match self.poll_pending_receive() {
-            ActorReceivePollResult::Ready => {
-                self.dispatcher.schedule(self.clone());
-                false
-            }
-            ActorReceivePollResult::Pending => false,
-            ActorReceivePollResult::Failed => {
+            // Ready: the registered completion callback already rescheduled us.
+            PollOutcome::Ready => false,
+            PollOutcome::Pending => false,
+            PollOutcome::Failed => {
                 self.kill();
                 self.publish_execution_exception();
                 self.dispatcher.schedule(self.clone());
                 false
             }
-            ActorReceivePollResult::NoPending => true,
+            PollOutcome::Idle => true,
         }
     }
 
@@ -143,7 +162,7 @@ impl ActorRunner {
         while self.mailbox.try_dequeue().is_some() {
         }
 
-        self.pending_receive.clear();
+        self.poll_driver.clear();
 
         let actor = unsafe { &mut *self.actor.get() };
         actor.on_kill();
@@ -152,6 +171,7 @@ impl ActorRunner {
     }
 
     fn publish_execution_exception(&self) {
+
     }
 }
 
@@ -178,7 +198,7 @@ impl ActorSchedulableTrait for ActorRunner {
             }
 
             let receive_result = catch_unwind(AssertUnwindSafe(|| {
-                PendingReceive::create_receive_future(&self.actor, actor_mail)
+                create_receive_future(&self.actor, actor_mail)
             }));
 
             let receive_result = match receive_result {
@@ -195,23 +215,17 @@ impl ActorSchedulableTrait for ActorRunner {
                 ActorReceiveResult::Pending(receive_future) => receive_future,
             };
 
-            self.pending_receive.set(receive_future);
+            self.poll_driver.arm(receive_future, Some(self.receive_completed_callback()));
 
             match self.poll_pending_receive() {
-                ActorReceivePollResult::Ready => {
-                    continue;
-                }
-                ActorReceivePollResult::Pending => {
-                    return;
-                }
-                ActorReceivePollResult::Failed => {
+                PollOutcome::Ready => return,
+                PollOutcome::Pending => return,
+                PollOutcome::Failed => {
                     self.kill();
                     self.publish_execution_exception();
                     break;
                 }
-                ActorReceivePollResult::NoPending => {
-                    continue;
-                }
+                PollOutcome::Idle => continue,
             }
         }
 
@@ -244,7 +258,7 @@ impl Wake for ActorRunnerWake {
         let dispatcher = ActorDispatcher::current_actor_dispatcher()
             .unwrap_or_else(|| Arc::clone(&self.dispatcher));
 
-        if self.actor_runner.pending_receive.try_mark_poll_scheduled() {
+        if self.actor_runner.poll_driver.try_mark_poll_scheduled() {
             dispatcher.schedule(self.actor_runner.clone());
         }
     }
