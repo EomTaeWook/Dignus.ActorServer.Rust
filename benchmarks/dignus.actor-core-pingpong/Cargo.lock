@@ -3,5 +3,12 @@
 version = 4
 
 [[package]]
+name = "actor-core-pingpong"
+version = "0.1.0"
+dependencies = [
+ "dignus-actor-core",
+]
+
+[[package]]
 name = "dignus-actor-core"
 version = "0.1.0"

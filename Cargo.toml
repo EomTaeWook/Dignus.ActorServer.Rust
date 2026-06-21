@@ -1,4 +1,4 @@
 [workspace]
 members = [
-    "actor-core"
+    "dignus-actor-core"
 ]

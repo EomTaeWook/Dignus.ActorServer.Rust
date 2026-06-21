@@ -26,7 +26,7 @@ Rust port target:
 
 ```text
 Dignus.ActorServer.Rust
-├─ actor-core
+├─ dignus-actor-core
 ├─ actor-network
 └─ benchmark
 ```
@@ -35,7 +35,8 @@ Current workspace status:
 
 ```text
 Dignus.ActorServer.Rust
-└─ actor-core
+├─ dignus-actor-core
+└─ benchmarks   (ping-pong: dignus-actor-core + actix / ractor / kameo / xtra / coerce)
 ```
 
 ---
@@ -226,6 +227,33 @@ The runtime relies on the following internal invariants:
 
 ---
 
+## Benchmarks
+
+Reproducible in-process **ping-pong** throughput benchmarks live in
+[`benchmarks/`](./benchmarks), including the same benchmark implemented on five
+mainstream Rust actor frameworks for comparison.
+
+Same machine, same methodology (348 pairs / 1,000 pipeline / 10s, fire-and-forget),
+3-run ranges:
+
+| Framework | Throughput (msg/s) |
+| --- | --- |
+| **`dignus-actor-core` (this project)** | **~365–400M** |
+| actix 0.13 | ~195–206M |
+| ractor 0.14 | ~107M |
+| kameo 0.20 | ~70–90M |
+| xtra 0.6 | ~83–85M |
+| coerce 0.8 | ~58–80M |
+
+Among the Rust actor frameworks tested, `dignus-actor-core` is the fastest on this
+benchmark, using its own `std::thread` dispatcher. The original C# runtime
+(~620–640M on the same machine) reaches higher.
+
+⚠️ This is a **pure in-process dispatch microbenchmark** — it does not reflect
+real-world (network/DB/logic-bound) performance, and the frameworks optimize for
+different goals. See [`benchmarks/README.md`](./benchmarks/README.md) for full
+methodology, versions, environment, how to reproduce, and caveats.
+
 ## Original C# Benchmark Baseline
 
 This benchmark result is from the original C# `Dignus.ActorServer` implementation.
@@ -268,6 +296,15 @@ Representative result:
 Throughput: around 250M ~ 270M msg/s
 ```
 
+> ⚠️ **Different machine — do not compare this number directly with the
+> [Benchmarks](#benchmarks) table above.** This ~277M figure is from the original
+> author's **Intel Core i5-12400F (6 cores / 12 threads)**, a weaker CPU with far
+> fewer cores. The throughput scales with core count (more cores → more pairs run
+> in parallel). For an apples-to-apples comparison, the same C# benchmark was
+> re-run on the **same 32-thread machine** as the Rust benchmarks and reaches
+> **~620–640M msg/s** (see [`benchmarks/`](./benchmarks)). On that same machine,
+> C# (~640M) is still ahead of this Rust port (~380M).
+
 Notes:
 
 * This benchmark measures local actor message throughput only.
@@ -286,7 +323,7 @@ From the workspace root:
 cargo check
 ```
 
-Or from `actor-core`:
+Or from `dignus-actor-core`:
 
 ```bash
 cargo check
@@ -301,15 +338,15 @@ Root `Cargo.toml`:
 ```toml
 [workspace]
 members = [
-    "actor-core"
+    "dignus-actor-core"
 ]
 ```
 
-`actor-core/Cargo.toml`:
+`dignus-actor-core/Cargo.toml`:
 
 ```toml
 [package]
-name = "actor-core"
+name = "dignus-actor-core"
 version = "0.1.0"
 edition = "2021"
 

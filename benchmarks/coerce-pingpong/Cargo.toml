@@ -1,0 +1,16 @@
+[workspace]
+
+[package]
+name = "coerce-pingpong"
+edition = "2021"
+version = "0.1.0"
+
+[dependencies]
+coerce = "0.8"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+async-trait = "0.1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

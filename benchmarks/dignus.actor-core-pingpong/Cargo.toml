@@ -1,0 +1,19 @@
+# Standalone (own workspace) so it stays out of the actor-core workspace.
+[workspace]
+
+[package]
+name = "actor-core-pingpong"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dignus-actor-core = { path = "../../dignus-actor-core" }
+
+[[bin]]
+name = "ping_pong"
+path = "src/ping_pong.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
