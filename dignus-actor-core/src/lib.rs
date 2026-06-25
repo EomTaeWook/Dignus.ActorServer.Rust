@@ -10,3 +10,6 @@ pub mod actor_system;
 pub mod dead_letter;
 pub mod messages;
 pub mod poll_driver;
+
+pub use internals::actor_ref::ActorRef;
+pub use internals::ask_awaiter::{AskAwaiter, AskError};

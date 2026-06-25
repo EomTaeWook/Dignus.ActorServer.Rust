@@ -1,12 +1,14 @@
 use crate::{
     actor_base::ActorBase,
-    actor_ref_trait::ActorRefTrait,
     dead_letter::{
         dead_letter_message::DeadLetterMessage,
         dead_letter_publisher_trait::DeadLetterPublisherTrait,
     },
     dispatcher::actor_dispatcher::ActorDispatcher,
-    internals::{actor_ref::ActorRef, actor_runner::ActorRunner, registry::ActorRegistry},
+    internals::{
+        actor_ref::ActorRef, actor_runner::ActorRunner, ask_system::AskSystem,
+        registry::ActorRegistry,
+    },
 };
 
 use std::{
@@ -29,6 +31,7 @@ pub struct ActorSystem {
     dispatchers: Vec<Arc<ActorDispatcher>>,
     is_disposed: AtomicBool,
     dead_letter_callback: Mutex<Option<DeadLetterCallback>>,
+    ask_system: Arc<AskSystem>,
 }
 
 impl ActorSystem {
@@ -55,6 +58,7 @@ impl ActorSystem {
             dispatchers,
             is_disposed: AtomicBool::new(false),
             dead_letter_callback: Mutex::new(None),
+            ask_system: AskSystem::new(dispatcher_thread_count),
         })
     }
 
@@ -77,24 +81,21 @@ impl ActorSystem {
         self.dispatchers.len()
     }
 
-    pub fn spawn<TActor>(self: &Arc<Self>) -> Arc<dyn ActorRefTrait>
+    pub fn spawn<TActor>(self: &Arc<Self>) -> Arc<ActorRef>
     where
         TActor: ActorBase + Default + 'static,
     {
         self.spawn_with_options::<TActor>(None, DEFAULT_MAILBOX_CAPACITY)
     }
 
-    pub fn spawn_with_alias<TActor>(self: &Arc<Self>, alias: String) -> Arc<dyn ActorRefTrait>
+    pub fn spawn_with_alias<TActor>(self: &Arc<Self>, alias: String) -> Arc<ActorRef>
     where
         TActor: ActorBase + Default + 'static,
     {
         self.spawn_with_options::<TActor>(Some(alias), DEFAULT_MAILBOX_CAPACITY)
     }
 
-    pub fn spawn_with_capacity<TActor>(
-        self: &Arc<Self>,
-        mailbox_capacity: usize,
-    ) -> Arc<dyn ActorRefTrait>
+    pub fn spawn_with_capacity<TActor>(self: &Arc<Self>, mailbox_capacity: usize) -> Arc<ActorRef>
     where
         TActor: ActorBase + Default + 'static,
     {
@@ -105,7 +106,7 @@ impl ActorSystem {
         self: &Arc<Self>,
         alias: Option<String>,
         mailbox_capacity: usize,
-    ) -> Arc<dyn ActorRefTrait>
+    ) -> Arc<ActorRef>
     where
         TActor: ActorBase + Default + 'static,
     {
@@ -115,7 +116,7 @@ impl ActorSystem {
     pub fn spawn_with_factory<TActor, TFactory>(
         self: &Arc<Self>,
         factory: TFactory,
-    ) -> Arc<dyn ActorRefTrait>
+    ) -> Arc<ActorRef>
     where
         TActor: ActorBase + 'static,
         TFactory: FnOnce() -> TActor,
@@ -127,7 +128,7 @@ impl ActorSystem {
         self: &Arc<Self>,
         factory: TFactory,
         alias: String,
-    ) -> Arc<dyn ActorRefTrait>
+    ) -> Arc<ActorRef>
     where
         TActor: ActorBase + 'static,
         TFactory: FnOnce() -> TActor,
@@ -139,7 +140,7 @@ impl ActorSystem {
         self: &Arc<Self>,
         factory: TFactory,
         mailbox_capacity: usize,
-    ) -> Arc<dyn ActorRefTrait>
+    ) -> Arc<ActorRef>
     where
         TActor: ActorBase + 'static,
         TFactory: FnOnce() -> TActor,
@@ -152,7 +153,7 @@ impl ActorSystem {
         factory: TFactory,
         alias: Option<String>,
         mailbox_capacity: usize,
-    ) -> Arc<dyn ActorRefTrait>
+    ) -> Arc<ActorRef>
     where
         TActor: ActorBase + 'static,
         TFactory: FnOnce() -> TActor,
@@ -160,10 +161,7 @@ impl ActorSystem {
         self.spawn_with_auto_dispatcher(factory(), alias, mailbox_capacity)
     }
 
-    pub fn spawn_on_dispatcher<TActor>(
-        self: &Arc<Self>,
-        dispatcher_index: usize,
-    ) -> Arc<dyn ActorRefTrait>
+    pub fn spawn_on_dispatcher<TActor>(self: &Arc<Self>, dispatcher_index: usize) -> Arc<ActorRef>
     where
         TActor: ActorBase + Default + 'static,
     {
@@ -178,7 +176,7 @@ impl ActorSystem {
         self: &Arc<Self>,
         dispatcher_index: usize,
         alias: String,
-    ) -> Arc<dyn ActorRefTrait>
+    ) -> Arc<ActorRef>
     where
         TActor: ActorBase + Default + 'static,
     {
@@ -193,7 +191,7 @@ impl ActorSystem {
         self: &Arc<Self>,
         dispatcher_index: usize,
         mailbox_capacity: usize,
-    ) -> Arc<dyn ActorRefTrait>
+    ) -> Arc<ActorRef>
     where
         TActor: ActorBase + Default + 'static,
     {
@@ -205,7 +203,7 @@ impl ActorSystem {
         dispatcher_index: usize,
         alias: Option<String>,
         mailbox_capacity: usize,
-    ) -> Arc<dyn ActorRefTrait>
+    ) -> Arc<ActorRef>
     where
         TActor: ActorBase + Default + 'static,
     {
@@ -216,7 +214,7 @@ impl ActorSystem {
         self: &Arc<Self>,
         factory: TFactory,
         dispatcher_index: usize,
-    ) -> Arc<dyn ActorRefTrait>
+    ) -> Arc<ActorRef>
     where
         TActor: ActorBase + 'static,
         TFactory: FnOnce() -> TActor,
@@ -234,7 +232,7 @@ impl ActorSystem {
         factory: TFactory,
         dispatcher_index: usize,
         alias: String,
-    ) -> Arc<dyn ActorRefTrait>
+    ) -> Arc<ActorRef>
     where
         TActor: ActorBase + 'static,
         TFactory: FnOnce() -> TActor,
@@ -252,7 +250,7 @@ impl ActorSystem {
         factory: TFactory,
         dispatcher_index: usize,
         mailbox_capacity: usize,
-    ) -> Arc<dyn ActorRefTrait>
+    ) -> Arc<ActorRef>
     where
         TActor: ActorBase + 'static,
         TFactory: FnOnce() -> TActor,
@@ -271,7 +269,7 @@ impl ActorSystem {
         dispatcher_index: usize,
         alias: Option<String>,
         mailbox_capacity: usize,
-    ) -> Arc<dyn ActorRefTrait>
+    ) -> Arc<ActorRef>
     where
         TActor: ActorBase + 'static,
         TFactory: FnOnce() -> TActor,
@@ -283,6 +281,8 @@ impl ActorSystem {
         if self.is_disposed.swap(true, Ordering::AcqRel) {
             return;
         }
+
+        self.ask_system.stop();
 
         for actor_runner in self.registry.snapshot_live() {
             actor_runner.kill();
@@ -314,10 +314,7 @@ impl ActorSystem {
         alias_to_handle.remove(&actor_alias);
     }
 
-    pub fn try_get_actor_ref_by_alias(
-        self: &Arc<Self>,
-        alias: &str,
-    ) -> Option<Arc<dyn ActorRefTrait>> {
+    pub fn try_get_actor_ref_by_alias(self: &Arc<Self>, alias: &str) -> Option<Arc<ActorRef>> {
         let handle = {
             let alias_to_handle = self.alias_to_handle.read().unwrap();
             alias_to_handle.get(alias).copied()
@@ -330,6 +327,7 @@ impl ActorSystem {
             generation,
             Some(alias.to_string()),
             Arc::clone(&self.registry),
+            Arc::clone(&self.ask_system),
         );
 
         Some(Arc::new(actor_ref))
@@ -341,7 +339,7 @@ impl ActorSystem {
         dispatcher_index: usize,
         alias: Option<String>,
         mailbox_capacity: usize,
-    ) -> Arc<dyn ActorRefTrait>
+    ) -> Arc<ActorRef>
     where
         TActor: ActorBase + 'static,
     {
@@ -362,7 +360,7 @@ impl ActorSystem {
         actor: TActor,
         alias: Option<String>,
         mailbox_capacity: usize,
-    ) -> Arc<dyn ActorRefTrait>
+    ) -> Arc<ActorRef>
     where
         TActor: ActorBase + 'static,
     {
@@ -377,7 +375,7 @@ impl ActorSystem {
         dispatcher_index: Option<usize>,
         alias: Option<String>,
         mailbox_capacity: usize,
-    ) -> Arc<dyn ActorRefTrait>
+    ) -> Arc<ActorRef>
     where
         TActor: ActorBase + 'static,
     {
@@ -394,8 +392,14 @@ impl ActorSystem {
             dispatcher_index.unwrap_or((index as usize) % self.dispatchers.len());
         let actor_dispatcher = Arc::clone(&self.dispatchers[dispatcher_index]);
 
-        let actor_ref = ActorRef::new(index, generation, alias.clone(), Arc::clone(&self.registry));
-        let actor_ref_trait: Arc<dyn ActorRefTrait> = Arc::new(actor_ref.clone());
+        let actor_ref = ActorRef::new(
+            index,
+            generation,
+            alias.clone(),
+            Arc::clone(&self.registry),
+            Arc::clone(&self.ask_system),
+        );
+        let actor_ref_handle = Arc::new(actor_ref.clone());
 
         let weak_actor_system = Arc::downgrade(self);
 
@@ -428,7 +432,7 @@ impl ActorSystem {
 
         self.registry.commit(index, actor_runner);
 
-        actor_ref_trait
+        actor_ref_handle
     }
 
     fn throw_if_disposed(&self) {

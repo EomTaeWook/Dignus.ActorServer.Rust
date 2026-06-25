@@ -20,4 +20,8 @@ impl ActorExceptionMessage {
     }
 }
 
-impl ActorMessageTrait for ActorExceptionMessage {}
+impl ActorMessageTrait for ActorExceptionMessage {
+    fn into_any(self: Box<Self>) -> Box<dyn std::any::Any> {
+        self
+    }
+}

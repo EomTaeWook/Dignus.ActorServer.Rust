@@ -23,7 +23,11 @@ const LIFECYCLE_STOPPED: i32 = 2;
 
 struct ActorExecutionExceptionMessage;
 
-impl ActorMessageTrait for ActorExecutionExceptionMessage {}
+impl ActorMessageTrait for ActorExecutionExceptionMessage {
+    fn into_any(self: Box<Self>) -> Box<dyn std::any::Any> {
+        self
+    }
+}
 
 fn create_receive_future<'actor>(
     actor: &'actor UnsafeCell<Box<dyn ActorBase>>,
