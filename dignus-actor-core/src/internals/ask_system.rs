@@ -3,7 +3,7 @@ use crate::internals::ask_awaiter_trait::AskAwaiterTrait;
 use crate::internals::ask_reply_actor_ref::AskReplyActorRef;
 use crate::messages::actor_message_trait::ActorMessageTrait;
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -17,7 +17,6 @@ struct AskSlot {
 }
 
 pub(crate) struct AskSystem {
-    next_slot_index: AtomicUsize,
     slots: Box<[Mutex<Option<AskSlot>>]>,
     slot_mask: usize,
     is_stopped: AtomicBool,
@@ -40,7 +39,6 @@ impl AskSystem {
         }
 
         let ask_system = Arc::new(Self {
-            next_slot_index: AtomicUsize::new(0),
             slots: slots.into_boxed_slice(),
             slot_mask: slot_count - 1,
             is_stopped: AtomicBool::new(false),
@@ -75,55 +73,29 @@ impl AskSystem {
         let deadline = Instant::now() + timeout;
         let ask_awaiter = AskAwaiter::<TResponse>::new();
         let ask_awaiter_trait = ask_awaiter.ask_awaiter();
+
+        let start_index =
+            (Arc::as_ptr(&ask_awaiter_trait) as *const () as usize >> 5) & self.slot_mask;
         let weak_ask_awaiter = Arc::downgrade(&ask_awaiter_trait);
-        let slot_index = self.reserve_slot(&weak_ask_awaiter, deadline);
-        let ask_reply_actor_ref =
-            AskReplyActorRef::new(Arc::downgrade(self), slot_index, weak_ask_awaiter);
+
+        self.reserve_slot(start_index, &weak_ask_awaiter, deadline);
+
+        let ask_reply_actor_ref = AskReplyActorRef::new(weak_ask_awaiter);
 
         (ask_awaiter, ask_reply_actor_ref)
     }
 
-    fn reserve_slot(&self, ask_awaiter: &Weak<dyn AskAwaiterTrait>, deadline: Instant) -> usize {
-        let first_slot_index =
-            self.next_slot_index.fetch_add(1, Ordering::Relaxed) & self.slot_mask;
-
-        for slot_offset in 0..self.slots.len() {
-            let slot_index = (first_slot_index + slot_offset) & self.slot_mask;
-            let mut slot = self.slots[slot_index].lock().unwrap();
-
-            if slot.is_none() {
-                *slot = Some(AskSlot {
-                    ask_awaiter: ask_awaiter.clone(),
-                    deadline,
-                });
-
-                return slot_index;
-            }
-        }
-
-        panic!("AskSystem slot capacity exhausted.");
-    }
-
-    pub(crate) fn try_complete_response(
+    fn reserve_slot(
         &self,
         slot_index: usize,
         ask_awaiter: &Weak<dyn AskAwaiterTrait>,
-        message: Box<dyn ActorMessageTrait>,
+        deadline: Instant,
     ) {
-        let ask_awaiter = {
-            let mut slot = self.slots[slot_index].lock().unwrap();
-
-            match slot.as_ref() {
-                Some(entry) if Weak::ptr_eq(&entry.ask_awaiter, ask_awaiter) => {
-                    slot.take().and_then(|entry| entry.ask_awaiter.upgrade())
-                }
-                _ => None,
-            }
-        };
-
-        if let Some(ask_awaiter) = ask_awaiter {
-            ask_awaiter.set_response(message);
-        }
+        let mut slot = self.slots[slot_index].lock().unwrap();
+        *slot = Some(AskSlot {
+            ask_awaiter: ask_awaiter.clone(),
+            deadline,
+        });
     }
 
     pub(crate) fn stop(&self) {
@@ -178,10 +150,9 @@ impl AskSystem {
                         Some(entry) if entry.deadline <= now => true,
                         Some(entry) if entry.ask_awaiter.strong_count() == 0 => true,
                         Some(entry) => {
-                            next_deadline =
-                                Some(next_deadline.map_or(entry.deadline, |current_deadline| {
-                                    current_deadline.min(entry.deadline)
-                                }));
+                            next_deadline = Some(
+                                next_deadline.map_or(entry.deadline, |current| current.min(entry.deadline)),
+                            );
                             false
                         }
                         None => false,

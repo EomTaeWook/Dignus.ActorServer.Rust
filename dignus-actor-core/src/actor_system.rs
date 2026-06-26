@@ -22,6 +22,7 @@ use std::{
 
 const DEFAULT_MAILBOX_CAPACITY: usize = 1024;
 const DEFAULT_ACTOR_CAPACITY: usize = 1 << 16;
+const DEFAULT_ASK_CAPACITY: usize = 1 << 18;
 
 type DeadLetterCallback = Arc<dyn Fn(&DeadLetterMessage) + Send + Sync + 'static>;
 
@@ -40,6 +41,14 @@ impl ActorSystem {
     }
 
     pub fn with_capacity(dispatcher_thread_count: usize, actor_capacity: usize) -> Arc<Self> {
+        Self::with_capacities(dispatcher_thread_count, actor_capacity, DEFAULT_ASK_CAPACITY)
+    }
+
+    pub fn with_capacities(
+        dispatcher_thread_count: usize,
+        actor_capacity: usize,
+        ask_capacity: usize,
+    ) -> Arc<Self> {
         if dispatcher_thread_count == 0 {
             panic!("dispatcher_thread_count must be greater than 0.");
         }
@@ -58,7 +67,7 @@ impl ActorSystem {
             dispatchers,
             is_disposed: AtomicBool::new(false),
             dead_letter_callback: Mutex::new(None),
-            ask_system: AskSystem::new(dispatcher_thread_count),
+            ask_system: AskSystem::new(ask_capacity),
         })
     }
 

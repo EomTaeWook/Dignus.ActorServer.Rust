@@ -37,6 +37,46 @@ its own `std::thread`-based dispatcher. The C# original goes higher still — so
 this is "fastest *among the tested Rust frameworks on this benchmark*", not
 "fastest possible".
 
+## Ask throughput (request/response)
+
+A separate benchmark for the **ask** (request → typed reply) path, same machine,
+same day. 32 target actors, **1,024 concurrent ask loops each** (32,768 in-flight),
+10s, each loop doing the framework's request/reply call and counting completed
+replies. **Per-asker counters** (no shared completion atomic, so the measurement
+itself isn't a bottleneck). Ranges over 3 runs.
+
+| Framework | Version | Throughput (ask/s) |
+| --- | --- | --- |
+| **`dignus-actor-core` (this project)** | — | **~50–60M** |
+| ractor | 0.14.7 | ~30–36M |
+| actix | 0.13.5 | ~30–36M |
+| coerce | 0.8.11 | ~28–40M |
+| xtra | 0.6.0 | ~30M |
+| kameo | 0.20.0 | ~24–28M |
+
+For context (not Rust actor frameworks):
+
+| Reference | Version | Throughput (ask/s) | Notes |
+| --- | --- | --- | --- |
+| C# `Dignus.ActorServer` | — | ~24M | actor-asker; `TaskCompletionSource` reply, shared timeout sweeper |
+| Akka.NET | 1.5.69 | ~0.7M | `Ask` allocates a temp reply actor (`PromiseActorRef`) per call |
+| Proto.Actor | 1.8.0 | ~0.3M | `RequestAsync` allocates a future process per call |
+
+**Idiom & design.** The five tokio frameworks issue each ask from a lightweight
+task (`call` / `ask` / `send().await`) with a oneshot reply. `dignus` has no
+external runtime, so each ask loop is an **asker actor** (`ask().await` resuming
+on its dispatcher), and the reply is **lock-free**: the reply actor-ref holds the
+awaiter directly and calls `set_response` — no registry lookup or lock on the hot
+path. Timeouts are tracked in a fixed slot ring (default 2¹⁸, configurable via
+`ActorSystem::with_capacities`) swept by one background thread.
+
+**Takeaway.** On the same actor-ask pattern, `dignus-actor-core` leads at
+~50–60M. The decisive factor was removing **every per-ask shared atomic/lock**
+(the request-id counter, the slot-assignment counter, and the reply-side lock) —
+the same "no shared synchronization on the hot path" principle that makes its
+fire-and-forget path fast. The mainstream C# frameworks (Akka/Proto) are 50–150×
+slower here because their ask allocates a per-call reply actor / future process.
+
 ## Methodology
 
 Every benchmark does the identical thing:
@@ -55,7 +95,7 @@ Every benchmark does the identical thing:
 
 - CPU: 32 logical cores
 - OS: Windows x64 (run under WSL2), `cargo` 1.96.0
-- Date: 2026-06-19
+- Date: 2026-06-19 (ping-pong); 2026-06-25 (ask)
 
 ## How to reproduce
 
@@ -73,8 +113,19 @@ cd xtra-pingpong    && cargo run --release
 cd coerce-pingpong  && cargo run --release
 ```
 
-Each prints `Processed`, `Elapsed`, and `Throughput`. Run a few times; report a
-range.
+The **ask** benchmark is a second binary in every crate (`--bin ask`):
+
+```bash
+cd dignus.actor-core-pingpong && cargo run --release --bin ask
+cd actix-pingpong   && cargo run --release --bin ask
+cd ractor-pingpong  && cargo run --release --bin ask
+cd kameo-pingpong   && cargo run --release --bin ask
+cd xtra-pingpong    && cargo run --release --bin ask
+cd coerce-pingpong  && cargo run --release --bin ask
+```
+
+Each prints `Processed`/`Completed`, `Elapsed`, and `Throughput`. Run a few times;
+report a range.
 
 ## Caveats (please keep these attached to the numbers)
 
@@ -83,7 +134,8 @@ range.
 2. **Different goals.** actix/kameo/coerce/xtra/ractor provide request-reply,
    supervision trees, distribution, and richer ergonomics. Those features are
    not free, and this benchmark does not exercise or credit them.
-3. **Fire-and-forget only.** No request/reply (ask) path is measured.
+3. **Two paths, two rankings.** Fire-and-forget (ping-pong) and request/reply
+   (ask) are separate benchmarks — don't quote one as "the" number.
 4. **Variance.** Scheduling/turbo/background load swing results; hence ranges.
 5. **Not exhaustive.** Only five frameworks were tested; others exist.
 6. **Higher ceilings exist.** The C# original reaches ~620–640M on this machine;
