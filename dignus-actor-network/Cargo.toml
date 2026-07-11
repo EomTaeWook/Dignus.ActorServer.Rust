@@ -1,0 +1,12 @@
+[package]
+name = "dignus-actor-network"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dignus-actor-core = { path = "../dignus-actor-core" }
+mio = { version = "1", features = ["net", "os-poll"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+
+[dev-dependencies]
+rcgen = "0.13"

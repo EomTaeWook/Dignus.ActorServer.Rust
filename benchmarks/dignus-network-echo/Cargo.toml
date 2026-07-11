@@ -1,0 +1,24 @@
+# Standalone (own workspace) so it stays out of the actor-core workspace.
+[workspace]
+
+[package]
+name = "dignus-network-echo"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dignus-actor-core = { path = "../../dignus-actor-core" }
+dignus-actor-network = { path = "../../dignus-actor-network" }
+
+[[bin]]
+name = "echo_server"
+path = "src/echo_server.rs"
+
+[[bin]]
+name = "echo_client"
+path = "src/echo_client.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
