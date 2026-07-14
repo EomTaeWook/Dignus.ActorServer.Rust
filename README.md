@@ -35,8 +35,9 @@ Current workspace status:
 
 ```text
 Dignus.ActorServer.Rust
-├─ dignus-actor-core
-└─ benchmarks   (ping-pong: dignus-actor-core + actix / ractor / kameo / xtra / coerce)
+├─ dignus-actor-core        (actor runtime: dispatchers, mailbox, ask)
+├─ dignus-actor-network     (mio multi-reactor: TCP/TLS, session=actor, length-prefix codec)
+└─ benchmarks               (in-process ping-pong + network echo)
 ```
 
 ---
@@ -227,6 +228,27 @@ The runtime relies on the following internal invariants:
 
 ---
 
+## Network Layer (`dignus-actor-network`)
+
+A port of the C# `Dignus.Actor.Network` + `Dignus.Sockets` layers, built on **mio**
+(no async runtime — matches the `std::thread` identity of the core).
+
+* **`TcpHost` / `TlsHost`** — multi-reactor server: one `Poll` loop per IO worker,
+  connections sharded across workers and pinned to one. Mirror C# `ActorTcpHost` / `ActorTlsHost`.
+* **`HostHandler`** — low-level `on_accepted` / `on_data` / `on_disconnected` (C# `IActorHostHandler`).
+* **`SessionActorHost`** — session = actor: spawns one actor per connection, decodes
+  inbound frames, posts to the actor, kills on disconnect (C# `SessionActorBase` + `TcpServerBase`).
+* **Codec** — `MessageDecoder` / `LengthPrefixedDecoder` (inbound) and
+  `FrameEncoder` / `LengthPrefixedEncoder` (outbound), handed to the actor as a `SessionSender`.
+* **TLS** — rustls (ring backend), sync state machine driven over mio.
+* **`HostOptions`** — worker count (default = cores), mailbox capacity, send-buffer cap.
+
+TCP and TLS share one internal `Reactor<H>` engine; only the `Transport` (plain vs
+rustls) differs. Cross-thread sends from actors reach the owning reactor via a
+`mio::Waker` + pending-writes queue.
+
+---
+
 ## Benchmarks
 
 Reproducible in-process **ping-pong** throughput benchmarks live in
@@ -253,6 +275,26 @@ benchmark, using its own `std::thread` dispatcher. The original C# runtime
 real-world (network/DB/logic-bound) performance, and the frameworks optimize for
 different goals. See [`benchmarks/README.md`](./benchmarks/README.md) for full
 methodology, versions, environment, how to reproduce, and caveats.
+
+### Network echo (TCP)
+
+Network layer (`dignus-actor-network`, mio multi-reactor) vs other actor-network IO models,
+32-byte closed-loop echo (window 1000, one load client, server swapped). Machine: i9-14900K
+(32 cores), TCP loopback, co-located. Pinned — server → cores 0–7, client → cores 8–31 (24
+connections); each server at its own 8-core optimum; 20 s runs, median.
+
+| Server | config | msg/s |
+| --- | --- | ---: |
+| C# (raw, no actor) | thread pool | ~63M |
+| tokio (raw, no actor) | 8 workers | ~62M |
+| Dignus Rust (raw, no actor) | 8 io-workers | ~61M |
+| **Dignus Rust (actor)** | 2 disp + 6 io | **~60–64M** |
+| actix (actor) | 8 arbiters | ~55M |
+| **Dignus C# (actor)** | 2 dispatchers | **~54M** |
+
+Rust actor ~1.1–1.25× over C# actor; raw layers ~tied. Close — exact ratio noise-limited on
+a co-located box. Full sweeps, method, and reproduce in
+[`benchmarks/README.md`](./benchmarks/README.md#network-echo-throughput-tcp).
 
 ## Original C# Benchmark Baseline
 
@@ -338,7 +380,8 @@ Root `Cargo.toml`:
 ```toml
 [workspace]
 members = [
-    "dignus-actor-core"
+    "dignus-actor-core",
+    "dignus-actor-network"
 ]
 ```
 

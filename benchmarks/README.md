@@ -1,15 +1,18 @@
 # Benchmarks
 
-In-process **ping-pong** message-throughput benchmarks for `dignus-actor-core`, plus the
-same benchmark implemented on five mainstream Rust actor frameworks, so the
-numbers are reproducible rather than asserted.
+Reproducible throughput benchmarks for the Dignus Rust port, in three families:
 
-> ⚠️ **Read the caveats before quoting any number.** This is a *pure in-process
-> dispatch microbenchmark*. It does **not** represent real-world performance,
-> where work is dominated by network, serialization, database, and game logic —
-> not actor dispatch. Each framework here optimizes for different things
-> (ask/request-reply, supervision, distribution, ergonomics); this measures only
-> raw local fire-and-forget message throughput.
+1. **In-process ping-pong** (fire-and-forget) — `dignus-actor-core` vs five mainstream
+   Rust actor frameworks.
+2. **Ask** (request/response) — same set plus C# / Akka.NET / Proto.Actor.
+3. **Network echo (TCP)** — `dignus-actor-network` (mio multi-reactor) vs tokio and the
+   C# `Dignus.ActorServer`.
+
+> ⚠️ **Read the caveats before quoting any number.** (1) and (2) are *pure in-process
+> dispatch microbenchmarks* and do **not** represent real-world performance, which is
+> dominated by network/serialization/DB/logic, not actor dispatch. Each framework
+> optimizes for different things (ask, supervision, distribution, ergonomics).
+> (3) is co-located (client+server on one box), so throughput is noisy — see its caveats.
 
 ## Results
 
@@ -77,9 +80,96 @@ the same "no shared synchronization on the hot path" principle that makes its
 fire-and-forget path fast. The mainstream C# frameworks (Akka/Proto) are 50–150×
 slower here because their ask allocates a per-call reply actor / future process.
 
-## Methodology
+## Network echo throughput (TCP)
 
-Every benchmark does the identical thing:
+Throughput of the network layer (`dignus-actor-network`, mio multi-reactor) against
+other actor-network IO models, on an echo workload. This measures the **IO
+architecture**; echo maximizes per-message overhead and thread hand-offs, so it
+surfaces the network-layer difference most sharply.
+
+**Method** (mirrors the Dignus C# `TcpTestClient`):
+
+- 32-byte fixed messages, closed-loop echo; **window 1000** per connection seeded up
+  front, each message re-sent as its echo returns (pipeline kept full).
+- **10 s** window; bytes echoed back → `msg/s`.
+- **One load client (`echo_client`), server swapped** = apples-to-apples.
+
+**Targets:**
+
+| Target | IO model | actor/codec |
+| --- | --- | --- |
+| Dignus Rust (actor) | mio multi-reactor (per-core Poll, connection-pinned) | yes (SessionActorHost + codec + EchoActor) |
+| Dignus Rust (raw) | 〃 | no (echo inside the reactor) |
+| **actix (actor)** | tokio, one actor per connection pinned to an arbiter thread | yes (actix `StreamHandler` + `FramedWrite`) |
+| Dignus C# (actor) | SAEA (IOCP) + .NET thread pool + `Task.Run` per send | yes |
+| tokio (raw) | tokio multi-thread runtime (task-per-conn) | no |
+
+> Most Rust actor frameworks (ractor/kameo/xtra/coerce) ship **no TCP layer** — they run
+> on tokio. **actix** is the exception (built-in actor + IO integration), so it's the
+> concrete "tokio-based actor network" here; **tokio (raw)** is the IO ceiling underneath
+> them all.
+
+**Setup:** pinned — server → cores 0–7, load client → cores 8–31 (24 connections); 20 s
+runs, median. (Unpinned/shared numbers are useless — same config swings 25–94M run-to-run.)
+Each runtime is swept to its own 8-core optimum, since they thread differently (Rust sets
+io-workers + dispatchers explicitly; C# has dispatchers + a hidden .NET thread pool → few
+dispatchers).
+
+**Peak-vs-peak (each at its 8-core optimum, same session, median):**
+
+| Server | config | msg/s |
+| --- | --- | ---: |
+| C# (raw, no actor) | thread pool | ~63M |
+| tokio (raw, no actor) | 8 workers | ~62M |
+| Dignus Rust (raw, no actor) | 8 io-workers | ~61M |
+| **Dignus Rust (actor)** | 2 disp + 6 io | **~60–64M** |
+| actix (actor) | 8 arbiters | ~55M |
+| **Dignus C# (actor)** | 2 dispatchers | **~54M** |
+
+Raw layers ~tied (~61–63M); actor path ~10–15% less. **Rust actor ~1.1–1.25× over C#
+actor** — close; exact ratio noise-limited on a co-located box (±15% session-to-session).
+
+**8-core config sweep** (each runtime is sensitive to thread count vs core budget):
+
+| Rust `disp + io` | msg/s |   | C# `dispatchers` | msg/s |
+| --- | ---: | --- | --- | ---: |
+| 2 + 6 (peak) | ~66M |   | 2 (peak) | ~53M |
+| 4 + 4 | ~47M |   | 4 | ~50M |
+| 6 + 2 | ~33M |   | 8 | ~34M |
+| 2 + 2 | ~32M |   | 16 | ~28M |
+
+**Environment:** i9-14900K (32 logical cores), TCP loopback, Windows (net10.0 / cargo
+release), client + server on the **same machine**.
+
+**Reproduce** (from `benchmarks/`):
+
+```bash
+# server (pick one)
+cd dignus-network-echo && cargo run --release --bin echo_server     -- 5000 32 8  # full (port, dispatchers, io-workers)
+cd dignus-network-echo && cargo run --release --bin echo_server_raw -- 5000 8      # raw  (port, io-workers)
+cd tokio-echo          && cargo run --release                       -- 5000 32     # tokio raw (port, worker_threads)
+cd actix-echo          && cargo run --release                       -- 5000 8      # actix actor (port, arbiters)
+# Dignus C#: Dignus.ActorServer-main/Benchmark/TcpActorServer → dotnet build -c Release, then
+#            tail -f /dev/null | ./bin/Release/net10.0/TcpActorServer.exe   # Console.Read EOF guard
+
+# load client (addr, connections, window, duration_secs)
+cd dignus-network-echo && cargo run --release --bin echo_client -- 127.0.0.1:5000 16 1000 10
+
+# context-switch sampling during load:
+powershell -File dignus-network-echo/sample.ps1 <process-name>
+```
+
+Pinning: set affinity via `(Get-Process -Id <pid>).ProcessorAffinity = [IntPtr]<mask>`
+(server `255` = cores 0–7, client `4294967040` = cores 8–31). Per-server 8-core optimum:
+Rust `echo_server 5000 2 6`, tokio `8`, actix `8`, C# `.WithDispatcherThreads(2)`.
+
+**Caveats:** co-located client+server → single-run swings ±30% (use medians; a clean number
+needs separate machines); each runtime must be sized to the core budget (see the sweep);
+echo amplifies the IO layer, so large messages / heavy handlers shrink all gaps.
+
+## Methodology (in-process ping-pong / ask)
+
+Every in-process benchmark does the identical thing:
 
 - **348 ping/pong pairs** = 696 actors. Each actor holds its peer's address.
 - **1000 in-flight messages seeded per pair** (the pipeline depth).

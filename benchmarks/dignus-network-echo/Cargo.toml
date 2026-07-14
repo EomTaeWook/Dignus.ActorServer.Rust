@@ -15,6 +15,10 @@ name = "echo_server"
 path = "src/echo_server.rs"
 
 [[bin]]
+name = "echo_server_raw"
+path = "src/echo_server_raw.rs"
+
+[[bin]]
 name = "echo_client"
 path = "src/echo_client.rs"
 

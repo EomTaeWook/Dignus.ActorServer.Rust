@@ -1,0 +1,19 @@
+# Standalone (own workspace) so it stays out of the actor-core workspace.
+[workspace]
+
+[package]
+name = "tokio-echo"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1", features = ["net", "rt-multi-thread", "macros", "io-util"] }
+
+[[bin]]
+name = "tokio_echo_server"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
