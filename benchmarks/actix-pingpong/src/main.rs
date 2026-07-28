@@ -1,7 +1,3 @@
-//! actix ping-pong throughput benchmark, matching the C# / Dignus setup:
-//! 348 ping/pong pairs (696 actors), 1000 in-flight per pair, 10s, per-actor
-//! counter summed afterwards. Actors are spread across one Arbiter (thread) per
-//! logical CPU; messages use `do_send` (fire-and-forget, the Post equivalent).
 
 use actix::prelude::*;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -120,7 +116,6 @@ fn main() {
                 })
             };
 
-            // FIFO mailbox: SetPong/SetPing arrive before the seeded Pings below.
             ping.do_send(SetPong(pong.clone()));
             pong.do_send(SetPing(ping.clone()));
 

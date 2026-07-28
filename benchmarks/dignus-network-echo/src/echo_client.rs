@@ -4,9 +4,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-// Mirrors the C# TcpTestClient EchoPacketProcessor benchmark:
-// one closed-loop echo stream per connection, WINDOW fixed-size messages in flight,
-// re-sending each message as its echo arrives, measured over DURATION.
 const MSG_LEN: usize = 32;
 const DEFAULT_WINDOW: usize = 1000;
 const DEFAULT_DURATION_SECS: u64 = 10;

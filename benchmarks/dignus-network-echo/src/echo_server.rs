@@ -2,13 +2,12 @@ use dignus_actor_core::actor_base::{ActorBase, ActorContext, ActorReceiveResult}
 use dignus_actor_core::actor_ref_trait::ActorRefTrait;
 use dignus_actor_core::actor_system::ActorSystem;
 use dignus_actor_core::messages::actor_message_trait::ActorMessageTrait;
-use dignus_actor_network::{
+use dignus_actor_server::{
     HostOptions, RawEncoder, RawFrameDecoder, SessionActorHost, SessionReceived, SessionSender,
     TcpHost,
 };
 use std::sync::Arc;
 
-// Effectively unbounded, mirroring the C# client benchmark's MaxPendingSendBytes = int.MaxValue.
 const MAX_PENDING_SEND: usize = 1 << 26;
 
 struct EchoActor {

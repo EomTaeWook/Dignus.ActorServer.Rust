@@ -40,6 +40,64 @@ Dignus.ActorServer.Rust
 └─ benchmarks               (in-process ping-pong + network echo)
 ```
 
+## Quick Start
+
+The workspace publishes two packages:
+
+```toml
+[dependencies]
+dignus-actor-core = "0.1"
+dignus-actor-server = "0.1"
+```
+
+Until the first crates.io release, use the Git repository:
+
+```toml
+[dependencies]
+dignus-actor-core = { git = "https://github.com/EomTaeWook/Dignus.ActorServer.Rust" }
+dignus-actor-server = {
+    git = "https://github.com/EomTaeWook/Dignus.ActorServer.Rust",
+    package = "dignus-actor-server"
+}
+```
+
+Runnable examples:
+
+```bash
+cargo run -p dignus-actor-core --example basic
+cargo run -p dignus-actor-server --example tcp_echo
+```
+
+Actor messages are owned values implementing `ActorMessageTrait`. Implement
+`ActorBase` for actor state, spawn it through `ActorSystem`, then import
+`ActorRefTrait` to post or kill:
+
+```rust
+use dignus_actor_core::actor_ref_trait::ActorRefTrait;
+
+actor_ref.post(Box::new(MyMessage), None);
+```
+
+Application shutdown should use a deadline:
+
+```rust
+use std::time::Duration;
+
+system.shutdown_timeout(Duration::from_secs(5))?;
+```
+
+TCP and TLS hosts are blocking servers. Obtain a shutdown handle before moving
+the host into its server thread:
+
+```rust
+let shutdown = host.shutdown_handle();
+let server = std::thread::spawn(move || host.run());
+
+// Later:
+shutdown.shutdown();
+server.join().unwrap()?;
+```
+
 ---
 
 ## Design Direction
@@ -228,7 +286,7 @@ The runtime relies on the following internal invariants:
 
 ---
 
-## Network Layer (`dignus-actor-network`)
+## Network Layer (`dignus-actor-server`)
 
 A port of the C# `Dignus.Actor.Network` + `Dignus.Sockets` layers, built on **mio**
 (no async runtime — matches the `std::thread` identity of the core).
@@ -278,7 +336,7 @@ methodology, versions, environment, how to reproduce, and caveats.
 
 ### Network echo (TCP)
 
-Network layer (`dignus-actor-network`, mio multi-reactor) vs other actor-network IO models,
+Network layer (`dignus-actor-server`, mio multi-reactor) vs other actor-network IO models,
 32-byte closed-loop echo (window 1000, one load client, server swapped). Machine: i9-14900K
 (32 cores), TCP loopback, co-located. Pinned — server → cores 0–7, client → cores 8–31 (24
 connections); each server at its own 8-core optimum; 20 s runs, median.

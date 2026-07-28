@@ -22,6 +22,12 @@ pub struct PollDriver {
     slot: Mutex<Option<(DriverFuture, Option<CompletionCallback>)>>,
 }
 
+impl Default for PollDriver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PollDriver {
     pub fn new() -> Self {
         Self {
@@ -66,7 +72,7 @@ impl PollDriver {
     }
 
     pub fn try_mark_poll_scheduled(&self) -> bool {
-        if self.is_active() == false {
+        if !self.is_active() {
             return false;
         }
 

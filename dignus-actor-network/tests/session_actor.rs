@@ -2,7 +2,7 @@ use dignus_actor_core::actor_base::{ActorBase, ActorContext, ActorReceiveResult}
 use dignus_actor_core::actor_ref_trait::ActorRefTrait;
 use dignus_actor_core::actor_system::ActorSystem;
 use dignus_actor_core::messages::actor_message_trait::ActorMessageTrait;
-use dignus_actor_network::{
+use dignus_actor_server::{
     HostOptions, RawEncoder, RawFrameDecoder, SessionActorHost, SessionReceived, SessionSender,
     TcpHost,
 };
@@ -57,7 +57,7 @@ fn session_actor_echo_roundtrip() {
             move || {
                 SessionActorHost::new(
                     Arc::clone(&system),
-                    |sender| EchoSessionActor::new(sender),
+                    EchoSessionActor::new,
                     RawFrameDecoder,
                     RawEncoder,
                 )

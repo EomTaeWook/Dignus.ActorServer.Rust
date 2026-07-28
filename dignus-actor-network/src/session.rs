@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 
 pub(crate) struct ReactorShared {
     pub(crate) waker: Waker,
+    pub(crate) stopped: AtomicBool,
     pub(crate) pending_writes: Mutex<Vec<Token>>,
     pub(crate) pending_closes: Mutex<Vec<Token>>,
     pub(crate) incoming: Mutex<Vec<(TcpStream, u64)>>,
@@ -47,13 +48,13 @@ impl Session {
     }
 
     pub fn send(&self, bytes: &[u8]) -> SendResult {
-        if self.is_disposed() {
+        if self.is_disposed() || self.shared.stopped.load(Ordering::Acquire) {
             return SendResult::Disposed;
         }
 
         {
             let mut outbound = self.outbound.lock().unwrap();
-            if outbound.can_write(bytes.len()) == false {
+            if !outbound.can_write(bytes.len()) {
                 return SendResult::BufferFull;
             }
             outbound.append(bytes);

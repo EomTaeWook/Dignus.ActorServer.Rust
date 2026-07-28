@@ -151,7 +151,8 @@ impl AskSystem {
                         Some(entry) if entry.ask_awaiter.strong_count() == 0 => true,
                         Some(entry) => {
                             next_deadline = Some(
-                                next_deadline.map_or(entry.deadline, |current| current.min(entry.deadline)),
+                                next_deadline
+                                    .map_or(entry.deadline, |current| current.min(entry.deadline)),
                             );
                             false
                         }

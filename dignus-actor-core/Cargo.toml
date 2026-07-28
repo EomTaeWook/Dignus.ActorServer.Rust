@@ -1,6 +1,16 @@
 [package]
 name = "dignus-actor-core"
 version = "0.1.0"
-edition = "2021"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "A high-throughput, dedicated-thread actor runtime"
+readme = "../README.md"
+keywords = ["actor", "concurrency", "runtime", "server"]
+categories = ["asynchronous", "concurrency"]
 
 [dependencies]
+
+[package.metadata.docs.rs]
+all-features = true

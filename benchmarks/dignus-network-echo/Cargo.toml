@@ -8,7 +8,7 @@ edition = "2021"
 
 [dependencies]
 dignus-actor-core = { path = "../../dignus-actor-core" }
-dignus-actor-network = { path = "../../dignus-actor-network" }
+dignus-actor-server = { path = "../../dignus-actor-network" }
 
 [[bin]]
 name = "echo_server"

@@ -16,7 +16,7 @@ impl Signal {
     pub(crate) fn wait(&self) {
         let mut is_signaled = self.is_signaled.lock().unwrap();
 
-        while *is_signaled == false {
+        while !*is_signaled {
             is_signaled = self.condition_variable.wait(is_signaled).unwrap();
         }
 

@@ -44,8 +44,7 @@ where
             return DecodeResult::Incomplete;
         }
 
-        let payload_len =
-            u32::from_be_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]) as usize;
+        let payload_len = u32::from_be_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]) as usize;
 
         if payload_len > self.max_frame_len {
             return DecodeResult::Corrupt;

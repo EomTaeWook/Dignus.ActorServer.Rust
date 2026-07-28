@@ -1,17 +1,3 @@
-// Rust port of the C# in-process PING-PONG throughput benchmark.
-//
-// Mirrors `Benchmark/Core/Program.cs::RunPostBenchmarkAsync` from the original
-// Dignus.ActorServer C# project:
-//
-//   - 348 ping/pong actor pairs (696 actors total)
-//   - 1,000 in-flight messages seeded per pair (pipeline size)
-//   - 2,048 mailbox capacity per actor
-//   - 10 second measured run
-//   - per-actor local counter, summed after completion (no per-message global sync)
-//
-// Each PingActor, on receiving a Ping, posts a Pong to its paired PongActor.
-// Each PongActor, on receiving a Pong, posts a Ping back. The bounce continues
-// until the shared `running` flag is cleared.
 
 use dignus_actor_core::actor_base::{ActorBase, ActorContext, ActorReceiveResult};
 use dignus_actor_core::actor_ref_trait::ActorRefTrait;
@@ -22,14 +8,12 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
-// ---- Benchmark parameters (match the C# baseline) -------------------------
 
 const ACTOR_PAIR_COUNT: usize = 348;
 const PIPELINE_SIZE_PER_PAIR: usize = 1_000;
 const MAILBOX_CAPACITY: usize = 2_048;
 const BENCHMARK_SECONDS: u64 = 10;
 
-// ---- Messages (mirror PingMessage / PongMessage) --------------------------
 
 struct PingMessage;
 struct PongMessage;
@@ -37,17 +21,12 @@ struct PongMessage;
 impl ActorMessageTrait for PingMessage {}
 impl ActorMessageTrait for PongMessage {}
 
-// A late-bound reference to the paired actor. Filled in after both actors of a
-// pair are spawned (the C# code calls SetPongActorRef / SetPingActorRef).
 type PeerSlot = Arc<OnceLock<Arc<dyn ActorRefTrait>>>;
 
-// ---- PingActor ------------------------------------------------------------
 
 struct PingActor {
     context: ActorContext,
     running: Arc<AtomicBool>,
-    // Plain, non-atomic per-actor counter (single-threaded per actor), matching
-    // the C# `_processedMessageCount++`. Published to `report` on kill.
     processed: u64,
     report: Arc<AtomicU64>,
     pong_ref: PeerSlot,
@@ -91,7 +70,6 @@ impl ActorBase for PingActor {
     }
 }
 
-// ---- PongActor ------------------------------------------------------------
 
 struct PongActor {
     context: ActorContext,
@@ -139,10 +117,8 @@ impl ActorBase for PongActor {
     }
 }
 
-// ---- Benchmark driver -----------------------------------------------------
 
 fn main() {
-    // The C# `new ActorSystem()` defaults to Environment.ProcessorCount dispatchers.
     let dispatcher_count = std::thread::available_parallelism()
         .map(|count| count.get())
         .unwrap_or(4);
@@ -157,8 +133,8 @@ fn main() {
         let ping_counter = Arc::new(AtomicU64::new(0));
         let pong_counter = Arc::new(AtomicU64::new(0));
 
-        let pong_slot: PeerSlot = Arc::new(OnceLock::new()); // held by ping actor -> points to pong
-        let ping_slot: PeerSlot = Arc::new(OnceLock::new()); // held by pong actor -> points to ping
+        let pong_slot: PeerSlot = Arc::new(OnceLock::new());
+        let ping_slot: PeerSlot = Arc::new(OnceLock::new());
 
         let ping_ref = actor_system.spawn_with_factory_and_capacity::<PingActor, _>(
             {
@@ -180,7 +156,6 @@ fn main() {
             MAILBOX_CAPACITY,
         );
 
-        // Wire the pair together (equivalent to SetPongActorRef / SetPingActorRef).
         let _ = pong_slot.set(Arc::clone(&pong_ref));
         let _ = ping_slot.set(Arc::clone(&ping_ref));
 
@@ -193,7 +168,6 @@ fn main() {
 
     let stopwatch = Instant::now();
 
-    // Seed the pipeline: post the initial Ping messages to every ping actor.
     for ping_ref in &ping_refs {
         for _ in 0..PIPELINE_SIZE_PER_PAIR {
             ping_ref.post(Box::new(PingMessage), None);
@@ -205,8 +179,6 @@ fn main() {
     running.store(false, Ordering::SeqCst);
     let elapsed = stopwatch.elapsed();
 
-    // Killing every actor runs on_kill, which publishes each actor's local
-    // counter. Done after the timer stops so it never affects the measurement.
     actor_system.dispose();
 
     let processed_message_count: u64 = counters
@@ -226,7 +198,6 @@ fn main() {
     println!("Throughput: {} msg/s", fmt(messages_per_second as u64));
 }
 
-// Thousands-separated formatting, to mirror the C# "N0" console output.
 fn fmt(value: u64) -> String {
     let digits = value.to_string();
     let bytes = digits.as_bytes();

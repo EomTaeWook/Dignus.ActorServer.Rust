@@ -1,9 +1,6 @@
-use dignus_actor_network::{HostHandler, HostOptions, Session, TcpHost};
+use dignus_actor_server::{HostHandler, HostOptions, Session, TcpHost};
 use std::sync::Arc;
 
-// Raw Dignus echo: echoes directly in the reactor thread via the low-level HostHandler.
-// No actor, no dispatcher hop, no codec, no message allocation — the fair counterpart to
-// tokio's raw task-per-connection echo (isolates the IO layer, actor removed on both sides).
 const MAX_PENDING_SEND: usize = 1 << 26;
 
 struct EchoHandler;

@@ -6,10 +6,6 @@ use tokio::io::{split, WriteHalf};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::codec::{BytesCodec, FramedRead};
 
-// actix TCP echo: one actor per connection. Each connection's bytes arrive as a
-// StreamHandler event on the actor (actix's mailbox/execution), and the actor echoes
-// them via its FramedWrite. Connections are round-robined across N arbiters (threads)
-// for multi-core. A real tokio-based actor framework doing echo — actor vs actor.
 
 struct EchoActor {
     writer: FramedWrite<BytesMut, WriteHalf<TcpStream>, BytesCodec>,

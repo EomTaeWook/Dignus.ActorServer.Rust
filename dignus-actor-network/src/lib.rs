@@ -30,7 +30,7 @@ pub use send_result::SendResult;
 pub use session::Session;
 pub use session_actor_host::{SessionActorHost, SessionHostOptions};
 pub use session_sender::SessionSender;
-pub use tcp_host::TcpHost;
+pub use tcp_host::{HostShutdown, TcpHost};
 pub use tcp_transport::TcpTransport;
 pub use tls_host::TlsHost;
 pub use tls_transport::{TlsTransport, TlsTransportFactory};

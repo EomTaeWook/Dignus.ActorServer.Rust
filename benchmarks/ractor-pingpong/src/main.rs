@@ -1,11 +1,3 @@
-//! ractor ping-pong throughput benchmark, matching the C# / Dignus setup:
-//! 348 ping/pong pairs (696 actors), 1000 in-flight per pair, 10s, per-actor
-//! counter summed afterwards.
-//!
-//! ractor actors are tokio tasks; parallelism comes from the multi-threaded
-//! tokio runtime (one worker per CPU). Messages use `send_message` (the
-//! fire-and-forget Post equivalent). Both ends of a pair are the same `Node`
-//! actor that simply bounces the message back to its peer.
 
 use ractor::{Actor, ActorProcessingErr, ActorRef};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -88,7 +80,6 @@ async fn main() {
             .await
             .expect("spawn b");
 
-        // FIFO mailbox: SetPeer arrives before the seeded Bounces below.
         a_ref.send_message(NodeMsg::SetPeer(b_ref.clone())).unwrap();
         b_ref.send_message(NodeMsg::SetPeer(a_ref.clone())).unwrap();
 

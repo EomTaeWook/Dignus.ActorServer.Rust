@@ -1,14 +1,12 @@
 use crate::internals::actor_runner::ActorRunner;
 use crate::messages::actor_mail::ActorMail;
 
-use std::cell::UnsafeCell;
-use std::sync::atomic::{AtomicPtr, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
 struct Slot {
     generation: AtomicU32,
-    runner_ptr: AtomicPtr<ActorRunner>,
-    owner: UnsafeCell<Option<Arc<ActorRunner>>>,
+    owner: Mutex<Option<Arc<ActorRunner>>>,
 }
 
 struct AllocState {
@@ -23,9 +21,6 @@ pub(crate) struct ActorRegistry {
     alloc: Mutex<AllocState>,
 }
 
-unsafe impl Send for ActorRegistry {}
-unsafe impl Sync for ActorRegistry {}
-
 impl ActorRegistry {
     pub(crate) fn with_capacity(capacity: usize) -> Self {
         let capacity = capacity.max(1).min(u32::MAX as usize - 1) as u32;
@@ -34,8 +29,7 @@ impl ActorRegistry {
         for _ in 0..capacity {
             slots.push(Slot {
                 generation: AtomicU32::new(0),
-                runner_ptr: AtomicPtr::new(std::ptr::null_mut()),
-                owner: UnsafeCell::new(None),
+                owner: Mutex::new(None),
             });
         }
 
@@ -74,15 +68,8 @@ impl ActorRegistry {
     }
 
     pub(crate) fn commit(&self, index: u32, runner: Arc<ActorRunner>) {
-        let _alloc = self.alloc.lock().unwrap();
-
         let slot = &self.slots[index as usize];
-        let runner_ptr = Arc::as_ptr(&runner) as *mut ActorRunner;
-
-        unsafe {
-            *slot.owner.get() = Some(runner);
-        }
-        slot.runner_ptr.store(runner_ptr, Ordering::Release);
+        *slot.owner.lock().unwrap() = Some(runner);
     }
 
     pub(crate) fn post(&self, index: u32, generation: u32, actor_mail: ActorMail) {
@@ -96,18 +83,17 @@ impl ActorRegistry {
             return;
         }
 
-        let runner_ptr = slot.runner_ptr.load(Ordering::Acquire);
-        if runner_ptr.is_null() {
-            return;
-        }
+        let runner = {
+            let owner = slot.owner.lock().unwrap();
+            if slot.generation.load(Ordering::Acquire) != generation {
+                return;
+            }
+            owner.as_ref().cloned()
+        };
 
-        let runner: &ActorRunner = unsafe { &*runner_ptr };
-
-        if runner.enqueue_only(actor_mail) {
-            unsafe {
-                Arc::increment_strong_count(runner_ptr as *const ActorRunner);
-                let runner_arc = Arc::from_raw(runner_ptr as *const ActorRunner);
-                runner_arc.schedule_self();
+        if let Some(runner) = runner {
+            if runner.enqueue_only(actor_mail) {
+                runner.schedule_self();
             }
         }
     }
@@ -123,15 +109,16 @@ impl ActorRegistry {
             return;
         }
 
-        let runner_ptr = slot.runner_ptr.load(Ordering::Acquire);
-        if runner_ptr.is_null() {
-            return;
-        }
+        let runner = {
+            let owner = slot.owner.lock().unwrap();
+            if slot.generation.load(Ordering::Acquire) != generation {
+                return;
+            }
+            owner.as_ref().cloned()
+        };
 
-        unsafe {
-            Arc::increment_strong_count(runner_ptr as *const ActorRunner);
-            let runner_arc = Arc::from_raw(runner_ptr as *const ActorRunner);
-            runner_arc.kill();
+        if let Some(runner) = runner {
+            runner.kill();
         }
     }
 
@@ -150,10 +137,7 @@ impl ActorRegistry {
 
         slot.generation
             .store(generation.wrapping_add(1), Ordering::Release);
-        slot.runner_ptr
-            .store(std::ptr::null_mut(), Ordering::Release);
-
-        let removed = unsafe { (*slot.owner.get()).take() };
+        let removed = slot.owner.lock().unwrap().take();
 
         if removed.is_some() {
             alloc.free.push(index);
@@ -168,8 +152,7 @@ impl ActorRegistry {
 
         let mut live = Vec::with_capacity(alloc.live);
         for index in 0..alloc.next_unused {
-            let slot = &self.slots[index as usize];
-            if let Some(runner) = unsafe { (*slot.owner.get()).as_ref() } {
+            if let Some(runner) = self.slots[index as usize].owner.lock().unwrap().as_ref() {
                 live.push(Arc::clone(runner));
             }
         }

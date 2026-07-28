@@ -12,7 +12,7 @@ use std::sync::{
 use std::thread::{self, JoinHandle};
 
 thread_local! {
-    static CURRENT_ACTOR_DISPATCHER: RefCell<Option<Arc<ActorDispatcher>>> = RefCell::new(None);
+    static CURRENT_ACTOR_DISPATCHER: RefCell<Option<Arc<ActorDispatcher>>> = const { RefCell::new(None) };
 }
 
 pub(crate) struct ActorDispatcher {

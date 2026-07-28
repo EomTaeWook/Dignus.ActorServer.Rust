@@ -7,6 +7,7 @@ use mio::{Events, Interest, Poll, Token, Waker};
 use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 const LISTENER_TOKEN: Token = Token(0);
@@ -24,7 +25,7 @@ pub(crate) struct Reactor<THandler: HostHandler> {
     poll: Poll,
     listener: Option<TcpListener>,
     connections: HashMap<Token, ManagedConnection>,
-    shared: Arc<ReactorShared>,
+    pub(crate) shared: Arc<ReactorShared>,
     peers: Vec<Arc<ReactorShared>>,
     handler: THandler,
     transport_factory: Arc<dyn TransportFactory>,
@@ -56,6 +57,7 @@ impl<THandler: HostHandler> Reactor<THandler> {
             let waker = Waker::new(poll.registry(), WAKER_TOKEN)?;
             let shared = Arc::new(ReactorShared {
                 waker,
+                stopped: AtomicBool::new(false),
                 pending_writes: Mutex::new(Vec::new()),
                 pending_closes: Mutex::new(Vec::new()),
                 incoming: Mutex::new(Vec::new()),
@@ -74,10 +76,14 @@ impl<THandler: HostHandler> Reactor<THandler> {
 
         let mut listener_slot = Some(listener);
         let mut reactors = Vec::with_capacity(worker_count);
-        for (index, (poll, shared)) in polls.into_iter().zip(shareds.into_iter()).enumerate() {
+        for (index, (poll, shared)) in polls.into_iter().zip(shareds).enumerate() {
             reactors.push(Reactor {
                 poll,
-                listener: if index == 0 { listener_slot.take() } else { None },
+                listener: if index == 0 {
+                    listener_slot.take()
+                } else {
+                    None
+                },
                 connections: HashMap::new(),
                 shared,
                 peers: peers.clone(),
@@ -104,11 +110,17 @@ impl<THandler: HostHandler> Reactor<THandler> {
                 match event.token() {
                     LISTENER_TOKEN => self.accept()?,
                     WAKER_TOKEN => {
+                        if self.shared.stopped.load(Ordering::Acquire) {
+                            self.close_all();
+                            return Ok(());
+                        }
                         self.take_incoming();
                         self.flush_pending();
                         self.close_pending();
                     }
-                    token => self.handle_connection(token, event.is_readable(), event.is_writable()),
+                    token => {
+                        self.handle_connection(token, event.is_readable(), event.is_writable())
+                    }
                 }
             }
         }
@@ -210,7 +222,7 @@ impl<THandler: HostHandler> Reactor<THandler> {
             closed = self.read(token);
         }
 
-        if closed == false && writable {
+        if !closed && writable {
             closed = self.flush(token);
         }
 
@@ -223,15 +235,15 @@ impl<THandler: HostHandler> Reactor<THandler> {
         let session;
         let mut closed = false;
 
-        // Reuse a per-reactor scratch buffer instead of allocating one per read event.
         let mut scratch = std::mem::take(&mut self.read_buf);
         scratch.clear();
 
         match self.connections.get_mut(&token) {
             Some(connection) => {
                 session = Arc::clone(&connection.session);
-                if let TransportOutcome::Closed =
-                    connection.transport.read(&mut connection.stream, &mut scratch)
+                if let TransportOutcome::Closed = connection
+                    .transport
+                    .read(&mut connection.stream, &mut scratch)
                 {
                     closed = true;
                 }
@@ -242,13 +254,13 @@ impl<THandler: HostHandler> Reactor<THandler> {
             }
         }
 
-        if scratch.is_empty() == false {
+        if !scratch.is_empty() {
             self.handler.on_data(&session, &scratch);
         }
 
         self.read_buf = scratch;
 
-        if closed == false {
+        if !closed {
             closed = self.flush(token);
         }
 
@@ -264,8 +276,9 @@ impl<THandler: HostHandler> Reactor<THandler> {
             {
                 let mut outbound = connection.session.outbound().lock().unwrap();
 
-                if let TransportOutcome::Closed =
-                    connection.transport.write(&mut connection.stream, &mut outbound)
+                if let TransportOutcome::Closed = connection
+                    .transport
+                    .write(&mut connection.stream, &mut outbound)
                 {
                     closed = true;
                 }
@@ -273,7 +286,7 @@ impl<THandler: HostHandler> Reactor<THandler> {
                 still_pending = outbound.has_pending() || connection.transport.wants_write();
             }
 
-            if closed == false {
+            if !closed {
                 let interest = if still_pending {
                     Interest::READABLE | Interest::WRITABLE
                 } else {
@@ -294,6 +307,13 @@ impl<THandler: HostHandler> Reactor<THandler> {
             connection.session.mark_disposed();
             let _ = self.poll.registry().deregister(&mut connection.stream);
             self.handler.on_disconnected(connection.session.id());
+        }
+    }
+
+    fn close_all(&mut self) {
+        let tokens: Vec<Token> = self.connections.keys().copied().collect();
+        for token in tokens {
+            self.close(token);
         }
     }
 }

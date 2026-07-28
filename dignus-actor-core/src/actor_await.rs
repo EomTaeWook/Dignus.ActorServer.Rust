@@ -44,7 +44,7 @@ impl Future for ActorAwaiter {
             }
         }
 
-        if actor_awaiter.is_scheduled == false {
+        if !actor_awaiter.is_scheduled {
             actor_awaiter.is_scheduled = true;
 
             let waker = context.waker().clone();

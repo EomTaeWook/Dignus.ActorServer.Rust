@@ -1,12 +1,22 @@
 [package]
-name = "dignus-actor-network"
+name = "dignus-actor-server"
 version = "0.1.0"
-edition = "2021"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "TCP and TLS actor server runtime for dignus-actor-core"
+readme = "../README.md"
+keywords = ["actor", "network", "tcp", "tls"]
+categories = ["asynchronous", "network-programming"]
 
 [dependencies]
-dignus-actor-core = { path = "../dignus-actor-core" }
+dignus-actor-core = { version = "0.1.0", path = "../dignus-actor-core" }
 mio = { version = "1", features = ["net", "os-poll"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 
 [dev-dependencies]
 rcgen = "0.13"
+
+[package.metadata.docs.rs]
+all-features = true

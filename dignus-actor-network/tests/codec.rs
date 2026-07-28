@@ -2,7 +2,7 @@ use dignus_actor_core::actor_base::{ActorBase, ActorContext, ActorReceiveResult}
 use dignus_actor_core::actor_ref_trait::ActorRefTrait;
 use dignus_actor_core::actor_system::ActorSystem;
 use dignus_actor_core::messages::actor_message_trait::ActorMessageTrait;
-use dignus_actor_network::{
+use dignus_actor_server::{
     length_prefixed_frame, HostOptions, LengthPrefixedDecoder, LengthPrefixedEncoder,
     SessionActorHost, SessionReceived, SessionSender, TcpHost,
 };
@@ -65,7 +65,7 @@ fn length_prefixed_frames_roundtrip() {
                 });
                 SessionActorHost::new(
                     Arc::clone(&system),
-                    |sender| FramedEchoActor::new(sender),
+                    FramedEchoActor::new,
                     decoder,
                     LengthPrefixedEncoder,
                 )
@@ -81,7 +81,6 @@ fn length_prefixed_frames_roundtrip() {
 
     let mut client = TcpStream::connect(address).unwrap();
 
-    // Two frames coalesced into a single write exercise the decode loop.
     let mut batch = length_prefixed_frame(b"first");
     batch.extend_from_slice(&length_prefixed_frame(b"second"));
     client.write_all(&batch).unwrap();
@@ -89,7 +88,6 @@ fn length_prefixed_frames_roundtrip() {
     assert_eq!(read_frame(&mut client), b"first");
     assert_eq!(read_frame(&mut client), b"second");
 
-    // A frame split across two writes exercises cross-read accumulation.
     let third = length_prefixed_frame(b"third");
     let (head, tail) = third.split_at(3);
     client.write_all(head).unwrap();

@@ -1,4 +1,4 @@
-use dignus_actor_network::{HostHandler, HostOptions, Session, TcpHost};
+use dignus_actor_server::{HostHandler, HostOptions, Session, TcpHost};
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::Arc;
@@ -19,12 +19,14 @@ impl HostHandler for EchoHandler {
 
 #[test]
 fn echo_roundtrip() {
-    let host = TcpHost::bind("127.0.0.1:0".parse().unwrap(), test_options(), || EchoHandler).unwrap();
+    let host = TcpHost::bind("127.0.0.1:0".parse().unwrap(), test_options(), || {
+        EchoHandler
+    })
+    .unwrap();
     let address = host.local_address();
+    let shutdown = host.shutdown_handle();
 
-    std::thread::spawn(move || {
-        let _ = host.run();
-    });
+    let server = std::thread::spawn(move || host.run());
 
     let mut client = TcpStream::connect(address).unwrap();
     client.write_all(b"hello mio reactor").unwrap();
@@ -33,6 +35,8 @@ fn echo_roundtrip() {
     client.read_exact(&mut received).unwrap();
 
     assert_eq!(&received, b"hello mio reactor");
+    shutdown.shutdown();
+    server.join().unwrap().unwrap();
 }
 
 struct PushOnAcceptHandler;
@@ -54,10 +58,9 @@ fn cross_thread_send_roundtrip() {
     })
     .unwrap();
     let address = host.local_address();
+    let shutdown = host.shutdown_handle();
 
-    std::thread::spawn(move || {
-        let _ = host.run();
-    });
+    let server = std::thread::spawn(move || host.run());
 
     let mut client = TcpStream::connect(address).unwrap();
 
@@ -65,4 +68,6 @@ fn cross_thread_send_roundtrip() {
     client.read_exact(&mut received).unwrap();
 
     assert_eq!(&received, b"server-push");
+    shutdown.shutdown();
+    server.join().unwrap().unwrap();
 }

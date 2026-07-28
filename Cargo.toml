@@ -1,5 +1,12 @@
 [workspace]
+resolver = "2"
 members = [
     "dignus-actor-core",
     "dignus-actor-network"
 ]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/EomTaeWook/Dignus.ActorServer.Rust"
+rust-version = "1.80"

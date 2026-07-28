@@ -5,7 +5,7 @@ Reproducible throughput benchmarks for the Dignus Rust port, in three families:
 1. **In-process ping-pong** (fire-and-forget) — `dignus-actor-core` vs five mainstream
    Rust actor frameworks.
 2. **Ask** (request/response) — same set plus C# / Akka.NET / Proto.Actor.
-3. **Network echo (TCP)** — `dignus-actor-network` (mio multi-reactor) vs tokio and the
+3. **Network echo (TCP)** — `dignus-actor-server` (mio multi-reactor) vs tokio and the
    C# `Dignus.ActorServer`.
 
 > ⚠️ **Read the caveats before quoting any number.** (1) and (2) are *pure in-process
@@ -82,7 +82,7 @@ slower here because their ask allocates a per-call reply actor / future process.
 
 ## Network echo throughput (TCP)
 
-Throughput of the network layer (`dignus-actor-network`, mio multi-reactor) against
+Throughput of the network layer (`dignus-actor-server`, mio multi-reactor) against
 other actor-network IO models, on an echo workload. This measures the **IO
 architecture**; echo maximizes per-message overhead and thread hand-offs, so it
 surfaces the network-layer difference most sharply.

@@ -8,10 +8,8 @@ const PAIRS: usize = 348;
 const INITIAL_MSGS: usize = 1000;
 const RUN_SECS: u64 = 10;
 
-// Fire-and-forget message bounced between peers.
 struct Ball;
 
-// Message used to wire the peer address into an actor.
 struct SetPeer(Address<PingPong>);
 
 struct PingPong {
@@ -70,7 +68,6 @@ async fn main() {
         let ping_addr = xtra::spawn_tokio(ping, Mailbox::unbounded());
         let pong_addr = xtra::spawn_tokio(pong, Mailbox::unbounded());
 
-        // Wire peers (FIFO mailbox: SetPeer arrives before any Ball).
         let _ = ping_addr.send(SetPeer(pong_addr.clone())).detach().await;
         let _ = pong_addr.send(SetPeer(ping_addr.clone())).detach().await;
 
@@ -80,7 +77,6 @@ async fn main() {
     running.store(true, Ordering::Relaxed);
     let start = Instant::now();
 
-    // Seed: 1000 initial messages to each Ping actor.
     for ping_addr in &ping_addrs {
         for _ in 0..INITIAL_MSGS {
             let _ = ping_addr.send(Ball).detach().await;

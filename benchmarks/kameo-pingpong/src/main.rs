@@ -10,10 +10,8 @@ const PAIRS: usize = 348;
 const PIPELINE: usize = 1000;
 const RUN_SECS: u64 = 10;
 
-// Fire-and-forget bounce message.
 struct Bounce;
 
-// Wire the peer address into an actor (processed before any Bounce due to FIFO mailbox).
 struct SetPeer(ActorRef<Node>);
 
 #[derive(Actor)]
@@ -48,7 +46,6 @@ impl Message<Bounce> for Node {
         if self.running.load(Ordering::Relaxed) {
             self.count.fetch_add(1, Ordering::Relaxed);
             if let Some(peer) = &self.peer {
-                // fire-and-forget; ignore mailbox-closed errors at shutdown
                 let _ = peer.tell(Bounce).try_send();
             }
         }
@@ -71,18 +68,15 @@ async fn main() {
         let ping = Node::spawn(Node::new(running.clone(), ping_count));
         let pong = Node::spawn(Node::new(running.clone(), pong_count));
 
-        // wire peers (FIFO mailbox guarantees these land before seeded Bounces)
         ping.tell(SetPeer(pong.clone())).await.unwrap();
         pong.tell(SetPeer(ping.clone())).await.unwrap();
 
         pings.push(ping);
     }
 
-    // start
     running.store(true, Ordering::Relaxed);
     let start = Instant::now();
 
-    // seed pipeline: 1000 initial messages to each Ping
     for ping in &pings {
         for _ in 0..PIPELINE {
             ping.tell(Bounce).await.unwrap();
@@ -93,7 +87,6 @@ async fn main() {
     running.store(false, Ordering::Relaxed);
     let elapsed = start.elapsed();
 
-    // let in-flight messages settle so they observe running=false and stop
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     let total: u64 = counters.iter().map(|c| c.load(Ordering::Relaxed)).sum();

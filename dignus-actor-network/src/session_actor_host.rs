@@ -62,7 +62,13 @@ where
     where
         TEncoder: FrameEncoder,
     {
-        Self::with_options(system, factory, decoder, encoder, SessionHostOptions::default())
+        Self::with_options(
+            system,
+            factory,
+            decoder,
+            encoder,
+            SessionHostOptions::default(),
+        )
     }
 
     pub fn with_options<TEncoder>(
@@ -106,10 +112,11 @@ where
                 None,
                 mailbox_capacity,
             ),
-            None => {
-                self.system
-                    .spawn_with_factory_options(move || factory(sender), None, mailbox_capacity)
-            }
+            None => self.system.spawn_with_factory_options(
+                move || factory(sender),
+                None,
+                mailbox_capacity,
+            ),
         };
 
         self.sessions.insert(
@@ -126,9 +133,6 @@ where
             return;
         };
 
-        // Fast path: nothing buffered from a previous read, so decode straight from the
-        // freshly-read slice and only copy the trailing partial frame (if any) into the
-        // per-session buffer. This avoids copying the whole read into `inbound` every time.
         if entry.inbound.is_empty() {
             let mut offset = 0;
             let mut corrupt = false;
@@ -158,7 +162,6 @@ where
             return;
         }
 
-        // Slow path: a partial frame straddles reads, so accumulate then decode.
         entry.inbound.extend_from_slice(data);
 
         let mut offset = 0;

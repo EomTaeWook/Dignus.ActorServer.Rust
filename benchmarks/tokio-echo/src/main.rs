@@ -1,9 +1,6 @@
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
-// Raw tokio echo server: one spawned task per connection (the tokio equivalent of
-// "one actor per connection"). Represents the IO ceiling of tokio-based actor
-// frameworks (actix / ractor / kameo / xtra / coerce all run on tokio).
 const READ_BUFFER_SIZE: usize = 1 << 16;
 
 fn main() {

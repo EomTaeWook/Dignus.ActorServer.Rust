@@ -1,4 +1,4 @@
-use dignus_actor_network::{HostHandler, HostOptions, Session, TlsHost};
+use dignus_actor_server::{HostHandler, HostOptions, Session, TlsHost};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName};
 use std::io::{Read, Write};
 use std::sync::Arc;
@@ -15,8 +15,7 @@ impl HostHandler for EchoHandler {
 fn tls_echo_roundtrip() {
     let cert_key = rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).unwrap();
     let cert_der = CertificateDer::from(cert_key.cert.der().to_vec());
-    let key_der: PrivateKeyDer =
-        PrivatePkcs8KeyDer::from(cert_key.key_pair.serialize_der()).into();
+    let key_der: PrivateKeyDer = PrivatePkcs8KeyDer::from(cert_key.key_pair.serialize_der()).into();
 
     let provider = Arc::new(rustls::crypto::ring::default_provider());
 

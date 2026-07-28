@@ -54,7 +54,12 @@ impl Transport for TlsTransport {
             if plaintext_len > 0 {
                 let start = inbound.len();
                 inbound.resize(start + plaintext_len, 0);
-                if self.connection.reader().read_exact(&mut inbound[start..]).is_err() {
+                if self
+                    .connection
+                    .reader()
+                    .read_exact(&mut inbound[start..])
+                    .is_err()
+                {
                     return TransportOutcome::Closed;
                 }
             }

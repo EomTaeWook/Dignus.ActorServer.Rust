@@ -99,12 +99,12 @@ impl ActorRunner {
             return false;
         }
 
-        if self.mailbox.try_enqueue(actor_mail) == false {
+        if !self.mailbox.try_enqueue(actor_mail) {
             return false;
         }
 
-        self.is_scheduled.load(Ordering::Acquire) == false
-            && self.is_scheduled.swap(true, Ordering::AcqRel) == false
+        !self.is_scheduled.load(Ordering::Acquire)
+            && !self.is_scheduled.swap(true, Ordering::AcqRel)
     }
 
     pub(crate) fn schedule_self(self: &Arc<Self>) {
@@ -121,10 +121,9 @@ impl ActorRunner {
                 Ordering::Acquire,
             )
             .is_ok()
+            && !self.is_scheduled.swap(true, Ordering::AcqRel)
         {
-            if self.is_scheduled.swap(true, Ordering::AcqRel) == false {
-                self.dispatcher.schedule(self.clone());
-            }
+            self.dispatcher.schedule(self.clone());
         }
     }
 
@@ -148,7 +147,7 @@ impl ActorRunner {
     }
 
     fn execute_pending_receive(self: &Arc<Self>) -> bool {
-        if self.poll_driver.is_active() == false {
+        if !self.poll_driver.is_active() {
             return true;
         }
 
@@ -196,7 +195,7 @@ impl ActorRunner {
 
 impl ActorSchedulableTrait for ActorRunner {
     fn execute(self: Arc<Self>) {
-        if self.execute_pending_receive() == false {
+        if !self.execute_pending_receive() {
             return;
         }
 
@@ -256,10 +255,8 @@ impl ActorSchedulableTrait for ActorRunner {
 
         self.is_scheduled.store(false, Ordering::Release);
 
-        if self.mailbox.try_peek() {
-            if self.is_scheduled.swap(true, Ordering::AcqRel) == false {
-                self.dispatcher.schedule(self.clone());
-            }
+        if self.mailbox.try_peek() && !self.is_scheduled.swap(true, Ordering::AcqRel) {
+            self.dispatcher.schedule(self.clone());
         }
     }
 }

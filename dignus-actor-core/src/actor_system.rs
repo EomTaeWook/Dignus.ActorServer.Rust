@@ -13,11 +13,14 @@ use crate::{
 
 use std::{
     collections::HashMap,
+    error::Error,
+    fmt,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex, RwLock,
     },
     thread,
+    time::{Duration, Instant},
 };
 
 const DEFAULT_MAILBOX_CAPACITY: usize = 1024;
@@ -25,6 +28,29 @@ const DEFAULT_ACTOR_CAPACITY: usize = 1 << 16;
 const DEFAULT_ASK_CAPACITY: usize = 1 << 18;
 
 type DeadLetterCallback = Arc<dyn Fn(&DeadLetterMessage) + Send + Sync + 'static>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ShutdownTimeout {
+    remaining_actors: usize,
+}
+
+impl ShutdownTimeout {
+    pub fn remaining_actors(self) -> usize {
+        self.remaining_actors
+    }
+}
+
+impl fmt::Display for ShutdownTimeout {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "actor system shutdown timed out with {} actor(s) remaining",
+            self.remaining_actors
+        )
+    }
+}
+
+impl Error for ShutdownTimeout {}
 
 pub struct ActorSystem {
     registry: Arc<ActorRegistry>,
@@ -41,7 +67,11 @@ impl ActorSystem {
     }
 
     pub fn with_capacity(dispatcher_thread_count: usize, actor_capacity: usize) -> Arc<Self> {
-        Self::with_capacities(dispatcher_thread_count, actor_capacity, DEFAULT_ASK_CAPACITY)
+        Self::with_capacities(
+            dispatcher_thread_count,
+            actor_capacity,
+            DEFAULT_ASK_CAPACITY,
+        )
     }
 
     pub fn with_capacities(
@@ -287,6 +317,33 @@ impl ActorSystem {
     }
 
     pub fn dispose(&self) {
+        self.begin_shutdown();
+
+        while self.registry.live_count() != 0 {
+            thread::yield_now();
+        }
+
+        self.stop_dispatchers();
+    }
+
+    pub fn shutdown_timeout(&self, timeout: Duration) -> Result<(), ShutdownTimeout> {
+        self.begin_shutdown();
+        let deadline = Instant::now().checked_add(timeout);
+
+        while self.registry.live_count() != 0 {
+            if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                return Err(ShutdownTimeout {
+                    remaining_actors: self.registry.live_count(),
+                });
+            }
+            thread::yield_now();
+        }
+
+        self.stop_dispatchers();
+        Ok(())
+    }
+
+    fn begin_shutdown(&self) {
         if self.is_disposed.swap(true, Ordering::AcqRel) {
             return;
         }
@@ -296,15 +353,9 @@ impl ActorSystem {
         for actor_runner in self.registry.snapshot_live() {
             actor_runner.kill();
         }
+    }
 
-        loop {
-            if self.registry.live_count() == 0 {
-                break;
-            }
-
-            thread::yield_now();
-        }
-
+    fn stop_dispatchers(&self) {
         for actor_dispatcher in &self.dispatchers {
             actor_dispatcher.dispose();
         }

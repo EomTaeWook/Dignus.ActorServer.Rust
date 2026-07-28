@@ -98,8 +98,7 @@ where
     }
 
     pub(crate) fn ask_awaiter(&self) -> Arc<dyn AskAwaiterTrait> {
-        let ask_awaiter_state_holder = Arc::clone(&self.state_holder);
-        ask_awaiter_state_holder
+        (Arc::clone(&self.state_holder)) as _
     }
 }
 
@@ -113,9 +112,9 @@ where
         let ask_awaiter = self.as_ref().get_ref();
         let mut state = ask_awaiter.state_holder.state.lock().unwrap();
 
-        if state.completed == false {
+        if !state.completed {
             let should_replace_waker = match state.waker.as_ref() {
-                Some(current_waker) => current_waker.will_wake(context.waker()) == false,
+                Some(current_waker) => !current_waker.will_wake(context.waker()),
                 None => true,
             };
 
