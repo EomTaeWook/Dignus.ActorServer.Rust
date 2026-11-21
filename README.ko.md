@@ -31,9 +31,9 @@ cargo run -p dignus-actor-server --example tcp_echo
 
 ## 문서
 
-- [런타임·네트워크 가이드 · 영어](docs/Usage.md)
+- [런타임·네트워크 가이드](docs/Usage.ko.md)
 - [Actor 실행 예제](dignus-actor-core/examples/basic.rs)
-- [벤치마크 방법 · 영어](benchmarks/README.md)
+- [벤치마크 방법](benchmarks/README.ko.md)
 
 ## 라이선스
 

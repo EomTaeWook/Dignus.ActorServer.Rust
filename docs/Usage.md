@@ -1,5 +1,7 @@
 # Dignus.ActorServer.Rust
 
+English | [한국어](Usage.ko.md)
+
 [English overview](../README.md) | [한국어 개요](../README.ko.md)
 
 A high-performance Rust port of the Dignus Actor Framework.

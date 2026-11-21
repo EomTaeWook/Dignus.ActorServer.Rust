@@ -1,5 +1,7 @@
 # Benchmarks
 
+English | [한국어](README.ko.md)
+
 Reproducible throughput benchmarks for the Dignus Rust port, in three families:
 
 1. **In-process ping-pong** (fire-and-forget) — `dignus-actor-core` vs five mainstream
